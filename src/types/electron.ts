@@ -1362,9 +1362,13 @@ declare global {
       getAudioBuffer: (id: number) => Promise<ArrayBuffer | null>;
       deleteTranscriptionAudio: (id: number) => Promise<{ success: boolean }>;
       getAudioStorageUsage: () => Promise<{ fileCount: number; totalBytes: number }>;
+      getMeetingAudioFiles: (noteId: number) => Promise<string[]>;
+      showMeetingAudioInFolder: (noteId: number) => Promise<{ success: boolean }>;
+      onMeetingAudioSaved: (callback: (data: { noteId: number }) => void) => () => void;
       deleteAllAudio: () => Promise<{ deleted: number }>;
       syncRetentionSettings?: (settings: {
         audioRetentionDays: number;
+        meetingAudioRetentionEnabled: boolean;
         transcriptRetentionDays: number;
         dataRetentionEnabled: boolean;
         localHistoryPolicyResolved: boolean;

@@ -1259,6 +1259,8 @@ export default function SettingsPage({
     setTelemetryEnabled,
     audioRetentionDays,
     setAudioRetentionDays,
+    meetingAudioRetentionEnabled,
+    setMeetingAudioRetentionEnabled,
     transcriptRetentionDays,
     setTranscriptRetentionDays,
     dataRetentionEnabled,
@@ -4384,6 +4386,18 @@ EOF`,
                         </option>
                       ))}
                     </select>
+                  </SettingsRow>
+                </SettingsPanelRow>
+                <SettingsPanelRow>
+                  <SettingsRow
+                    label={t("settingsPage.privacy.meetingAudioRetention")}
+                    description={t("settingsPage.privacy.meetingAudioRetentionDescription")}
+                  >
+                    <Toggle
+                      checked={meetingAudioRetentionEnabled}
+                      disabled={!effectiveDataRetentionEnabled || enforcedAudioRetentionDays === 0}
+                      onChange={setMeetingAudioRetentionEnabled}
+                    />
                   </SettingsRow>
                 </SettingsPanelRow>
                 <SettingsPanelRow>

@@ -168,6 +168,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getAudioBuffer: (id) => ipcRenderer.invoke("get-audio-buffer", id),
   deleteTranscriptionAudio: (id) => ipcRenderer.invoke("delete-transcription-audio", id),
   getAudioStorageUsage: () => ipcRenderer.invoke("get-audio-storage-usage"),
+  getMeetingAudioFiles: (noteId) => ipcRenderer.invoke("get-meeting-audio-files", noteId),
+  showMeetingAudioInFolder: (noteId) => ipcRenderer.invoke("show-meeting-audio-in-folder", noteId),
+  onMeetingAudioSaved: registerListener(
+    "meeting-audio-saved",
+    (callback) => (_event, data) => callback(data)
+  ),
   deleteAllAudio: () => ipcRenderer.invoke("delete-all-audio"),
   syncRetentionSettings: (settings) => ipcRenderer.send("retention-settings-changed", settings),
   retryTranscription: (id, settings) => ipcRenderer.invoke("retry-transcription", id, settings),

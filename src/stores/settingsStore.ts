@@ -280,6 +280,7 @@ const BOOLEAN_SETTINGS = new Set([
   "insightsSyncEnabled",
   "telemetryEnabled",
   "audioCuesEnabled",
+  "meetingAudioRetentionEnabled",
   "pauseMediaOnDictation",
   "floatingIconAutoHide",
   "startMinimized",
@@ -1194,6 +1195,7 @@ export interface SettingsState
   setInsightsSyncEnabled: (value: boolean) => void;
   setTelemetryEnabled: (value: boolean) => void;
   setAudioRetentionDays: (days: number) => void;
+  setMeetingAudioRetentionEnabled: (enabled: boolean) => void;
   setTranscriptRetentionDays: (days: number) => void;
   setDataRetentionEnabled: (value: boolean) => void;
   setSaveDiscardedTranscriptions: (value: boolean) => void;
@@ -1616,6 +1618,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   insightsSyncEnabled: readBoolean("insightsSyncEnabled", false),
   telemetryEnabled: readBoolean("telemetryEnabled", false),
   audioRetentionDays: readNumber("audioRetentionDays", 30),
+  meetingAudioRetentionEnabled: readBoolean("meetingAudioRetentionEnabled", false),
   transcriptRetentionDays: readNumber("transcriptRetentionDays", 0),
   dataRetentionEnabled: readBoolean("dataRetentionEnabled", true),
   saveDiscardedTranscriptions: readBoolean("saveDiscardedTranscriptions", false),
@@ -2376,6 +2379,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     set({ micWarmHoldSeconds: snapped });
   },
   setAudioRetentionDays: createNumberSetter("audioRetentionDays"),
+  setMeetingAudioRetentionEnabled: createBooleanSetter("meetingAudioRetentionEnabled"),
   setTranscriptRetentionDays: createNumberSetter("transcriptRetentionDays"),
   setDataRetentionEnabled: (value: boolean) => {
     if (isBrowser) localStorage.setItem("dataRetentionEnabled", String(value));

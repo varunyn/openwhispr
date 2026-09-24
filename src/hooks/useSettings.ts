@@ -110,6 +110,7 @@ export interface PrivacySettings {
   insightsSyncEnabled: boolean;
   telemetryEnabled: boolean;
   audioRetentionDays: number;
+  meetingAudioRetentionEnabled: boolean;
   transcriptRetentionDays: number;
   dataRetentionEnabled: boolean;
   saveDiscardedTranscriptions: boolean;
@@ -196,7 +197,12 @@ function useSettingsInternal() {
   }, []);
 
   // Retention periods are enforced by the main process cleanup sweep
-  const { audioRetentionDays, transcriptRetentionDays, dataRetentionEnabled } = store;
+  const {
+    audioRetentionDays,
+    meetingAudioRetentionEnabled,
+    transcriptRetentionDays,
+    dataRetentionEnabled,
+  } = store;
   const enforcedAudioRetentionDays = usePolicyStore((policyState) =>
     effectiveAudioRetentionDays(policyState, audioRetentionDays)
   );
@@ -211,12 +217,14 @@ function useSettingsInternal() {
   useEffect(() => {
     window.electronAPI?.syncRetentionSettings?.({
       audioRetentionDays: enforcedAudioRetentionDays,
+      meetingAudioRetentionEnabled,
       transcriptRetentionDays,
       dataRetentionEnabled: enforcedDataRetentionEnabled,
       localHistoryPolicyResolved,
     });
   }, [
     enforcedAudioRetentionDays,
+    meetingAudioRetentionEnabled,
     transcriptRetentionDays,
     enforcedDataRetentionEnabled,
     localHistoryPolicyResolved,
@@ -452,6 +460,8 @@ function useSettingsInternal() {
     setTelemetryEnabled: store.setTelemetryEnabled,
     audioRetentionDays: store.audioRetentionDays,
     setAudioRetentionDays: store.setAudioRetentionDays,
+    meetingAudioRetentionEnabled: store.meetingAudioRetentionEnabled,
+    setMeetingAudioRetentionEnabled: store.setMeetingAudioRetentionEnabled,
     transcriptRetentionDays: store.transcriptRetentionDays,
     setTranscriptRetentionDays: store.setTranscriptRetentionDays,
     dataRetentionEnabled: store.dataRetentionEnabled,

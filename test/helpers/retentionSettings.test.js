@@ -17,6 +17,7 @@ test("reports a change when a retention period is shortened", () => {
       changed: true,
       settings: {
         audioRetentionDays: 1,
+        meetingAudioRetentionEnabled: false,
         transcriptRetentionDays: 1,
         dataRetentionEnabled: true,
         localHistoryPolicyResolved: false,
@@ -36,6 +37,7 @@ test("is idempotent when both values are unchanged — dual-window mount sync", 
 test("keeps the current value when an incoming value is missing or unusable", () => {
   const current = {
     audioRetentionDays: 7,
+    meetingAudioRetentionEnabled: false,
     transcriptRetentionDays: 1,
     dataRetentionEnabled: true,
     localHistoryPolicyResolved: false,
@@ -57,6 +59,7 @@ test("only the main renderer can replace process-global retention settings", () 
   const auxiliaryRenderers = [{}, {}, {}];
   const managedSettings = {
     audioRetentionDays: 7,
+    meetingAudioRetentionEnabled: false,
     transcriptRetentionDays: 30,
     dataRetentionEnabled: true,
     localHistoryPolicyResolved: false,
@@ -94,11 +97,21 @@ test("only the main renderer can replace process-global retention settings", () 
   );
   assert.deepEqual(current, {
     audioRetentionDays: 90,
+    meetingAudioRetentionEnabled: false,
     transcriptRetentionDays: 0,
     dataRetentionEnabled: true,
     localHistoryPolicyResolved: false,
   });
   assert.equal(cleanupRuns, 2);
+});
+
+test("meeting audio retention requires an explicit renderer setting", () => {
+  assert.equal(DEFAULT_RETENTION_SETTINGS.meetingAudioRetentionEnabled, false);
+  const enabled = applyRetentionSettings(DEFAULT_RETENTION_SETTINGS, {
+    meetingAudioRetentionEnabled: true,
+  });
+  assert.equal(enabled.changed, true);
+  assert.equal(enabled.settings.meetingAudioRetentionEnabled, true);
 });
 
 test("no sweep runs before the renderer has synced the persisted settings", () => {
@@ -164,6 +177,7 @@ test("a disabled retention setting reaches the sweep before it can delete", () =
   assert.deepEqual(sweptWith, [
     {
       audioRetentionDays: 0,
+      meetingAudioRetentionEnabled: false,
       transcriptRetentionDays: 0,
       dataRetentionEnabled: true,
       localHistoryPolicyResolved: false,

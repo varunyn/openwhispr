@@ -3,6 +3,7 @@
 // actually differ before kicking off another cleanup sweep.
 const DEFAULT_RETENTION_SETTINGS = {
   audioRetentionDays: 30,
+  meetingAudioRetentionEnabled: false,
   transcriptRetentionDays: 0, // 0 = keep transcripts forever
   // The renderer's policy-aware "keep local history" switch. Defaults to true
   // so a renderer that predates this field is never read as history-off, and
@@ -22,6 +23,10 @@ function toDays(value, fallback) {
 function applyRetentionSettings(current, incoming) {
   const settings = {
     audioRetentionDays: toDays(incoming?.audioRetentionDays, current.audioRetentionDays),
+    meetingAudioRetentionEnabled:
+      typeof incoming?.meetingAudioRetentionEnabled === "boolean"
+        ? incoming.meetingAudioRetentionEnabled
+        : current.meetingAudioRetentionEnabled,
     transcriptRetentionDays: toDays(
       incoming?.transcriptRetentionDays,
       current.transcriptRetentionDays
@@ -37,6 +42,7 @@ function applyRetentionSettings(current, incoming) {
   };
   const changed =
     settings.audioRetentionDays !== current.audioRetentionDays ||
+    settings.meetingAudioRetentionEnabled !== current.meetingAudioRetentionEnabled ||
     settings.transcriptRetentionDays !== current.transcriptRetentionDays ||
     settings.dataRetentionEnabled !== current.dataRetentionEnabled ||
     // The policy settling is what unblocks reconstruction, so it has to count

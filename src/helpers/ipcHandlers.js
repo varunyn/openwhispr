@@ -99,6 +99,7 @@ const { getTinfoilChatModels } = require("./tinfoilCatalog");
 const { transcribeWithTinfoil } = require("./tinfoilTranscription");
 const { transcribeWithGemini } = require("./geminiTranscription");
 const AudioStorageManager = require("./audioStorage");
+const MeetingAudioStorage = require("./meetingAudioStorage");
 const LocalModelDownloadStatus = require("./localModelDownloadStatus");
 const AgentStreamRequestRegistry = require("./agentStreamRequestRegistry");
 const createMeetingTranscriptionLifecycle = require("./meetingTranscriptionLifecycle");
@@ -648,6 +649,7 @@ class IPCHandlers {
     this._activeRecordingPipeline = null;
     this._onboardingDemoSession = null;
     this.audioStorageManager = new AudioStorageManager();
+    this.meetingAudioStorage = new MeetingAudioStorage(this.audioStorageManager.audioDir);
     this.localModelDownloadStatus = new LocalModelDownloadStatus();
     this._retentionCleanupInterval = null;
     this._retentionSettings = { ...DEFAULT_RETENTION_SETTINGS }; // Synced from renderer
@@ -1152,6 +1154,7 @@ class IPCHandlers {
       }
       if (audioRetentionDays > 0) {
         this.audioStorageManager.cleanupExpiredAudio(audioRetentionDays, this.databaseManager);
+        this.meetingAudioStorage.cleanupExpired(audioRetentionDays);
       }
     } catch (error) {
       debugLogger.error("Retention cleanup failed", { error: error.message }, "audio-storage");
@@ -1726,7 +1729,24 @@ class IPCHandlers {
     });
 
     ipcMain.handle("get-audio-storage-usage", async () => {
-      return this.audioStorageManager.getStorageUsage();
+      const dictation = this.audioStorageManager.getStorageUsage();
+      const meetings = this.meetingAudioStorage.getStorageUsage();
+      return {
+        fileCount: dictation.fileCount + meetings.fileCount,
+        totalBytes: dictation.totalBytes + meetings.totalBytes,
+      };
+    });
+
+    ipcMain.handle("get-meeting-audio-files", (_event, noteId) =>
+      this.databaseManager.getNote(noteId) ? this.meetingAudioStorage.filesForNote(noteId) : []
+    );
+
+    ipcMain.handle("show-meeting-audio-in-folder", (_event, noteId) => {
+      if (!this.databaseManager.getNote(noteId)) return { success: false };
+      const files = this.meetingAudioStorage.filesForNote(noteId);
+      if (!files.length) return { success: false };
+      shell.showItemInFolder(files[files.length - 1]);
+      return { success: true };
     });
 
     ipcMain.on(
@@ -1738,6 +1758,13 @@ class IPCHandlers {
         onSettingsChanged: (settings) => {
           this._retentionSettings = settings;
           this._retentionSettingsSynced = true;
+          if (
+            settings.audioRetentionDays === 0 ||
+            !settings.dataRetentionEnabled ||
+            !settings.meetingAudioRetentionEnabled
+          ) {
+            this.meetingAudioStorage.abort();
+          }
           this._runRetentionCleanup();
           // First point at which the local-history switch is known to be real.
           // After the sweep, so expired transcripts are gone before they can be
@@ -1749,6 +1776,8 @@ class IPCHandlers {
 
     ipcMain.handle("delete-all-audio", async () => {
       const result = this.audioStorageManager.deleteAllAudio();
+      const meetingCount = this.meetingAudioStorage.getStorageUsage().fileCount;
+      this.meetingAudioStorage.deleteAll();
       try {
         const rows = this.databaseManager.db
           .prepare("SELECT id FROM transcriptions WHERE has_audio = 1")
@@ -1763,7 +1792,7 @@ class IPCHandlers {
           "audio-storage"
         );
       }
-      return result;
+      return { deleted: result.deleted + meetingCount };
     });
 
     ipcMain.handle("get-transcription-by-id", async (event, id) => {
@@ -2496,6 +2525,8 @@ class IPCHandlers {
     ipcMain.handle("db-hard-delete-note", (_, id) => {
       const result = this.databaseManager.hardDeleteNote(id);
       if (result?.success) {
+        if (this.meetingAudioStorage.active?.noteId === id) this.meetingAudioStorage.abort();
+        this.meetingAudioStorage.deleteForNote(id);
         this.notifyVectorChanges();
         this._asyncMirrorDelete(id);
         setImmediate(() => broadcastToWindows("note-deleted", { id }));
@@ -3932,6 +3963,7 @@ class IPCHandlers {
       // Delete audio files
       try {
         this.audioStorageManager.deleteAllAudio();
+        this.meetingAudioStorage.deleteAll();
       } catch (e) {
         errors.push(`Audio delete: ${e.message}`);
       }
@@ -8290,6 +8322,7 @@ class IPCHandlers {
         await this.windowsLoopbackAudioManager.stop().catch(() => {});
       }
       await stopMeetingAec();
+      this.meetingAudioStorage.abort();
       await stopLiveSpeakerIdentification().catch(() => {});
       resetMeetingLocalState();
       await disconnectMeetingStreaming().catch(() => {});
@@ -8576,6 +8609,13 @@ class IPCHandlers {
         meetingOneOnOneProfileBound = false;
         meetingNoteId = options.noteId ?? null;
         this._activeMeetingNoteId = meetingNoteId;
+        if (
+          this._mayStartAnalyticsHistoryReconstruction() &&
+          this._retentionSettings.meetingAudioRetentionEnabled &&
+          this._retentionSettings.audioRetentionDays > 0
+        ) {
+          this.meetingAudioStorage.begin(meetingNoteId, recordingSessionId);
+        }
 
         // Seed the speaker cap from the note/calendar participants up front so live
         // identification isn't stuck at the default if the renderer never pushes a config.
@@ -8682,6 +8722,15 @@ class IPCHandlers {
 
     const sendMeetingAudio = (audioBuffer, source, synthetic = false, capturedAt = null) => {
       const outboundBuffer = Buffer.isBuffer(audioBuffer) ? audioBuffer : Buffer.from(audioBuffer);
+      try {
+        this.meetingAudioStorage.append(source, outboundBuffer, capturedAt);
+      } catch (error) {
+        debugLogger.error(
+          "Meeting audio retention failed",
+          { error: error.message },
+          "audio-storage"
+        );
+      }
       // Auto-end judges "is anyone audible" from the raw chunk of either
       // channel, before AEC/holdback/muting can swallow it.
       if (!synthetic) {
@@ -8942,6 +8991,7 @@ class IPCHandlers {
     });
 
     const stopMeetingTranscription = async (expectedSessionId) => {
+      const retainedNoteId = meetingNoteId;
       // Only a *different* live session blocks teardown — it owns the shared
       // capture now. With no engine session (e.g. after quit-path engine stop)
       // the streams below must still be torn down.
@@ -9034,6 +9084,19 @@ class IPCHandlers {
       } catch (error) {
         debugLogger.error("Meeting transcription stop error", { error: error.message });
         return { success: false, error: error.message };
+      } finally {
+        try {
+          const recordingPath = this.meetingAudioStorage.finish();
+          if (recordingPath) {
+            broadcastToWindows("meeting-audio-saved", { noteId: retainedNoteId });
+          }
+        } catch (error) {
+          debugLogger.error(
+            "Failed to save meeting recording",
+            { error: error.message },
+            "audio-storage"
+          );
+        }
       }
     };
 
@@ -12444,6 +12507,8 @@ class IPCHandlers {
   deleteNoteInternal(id) {
     const result = this.databaseManager.deleteNote(id);
     if (result?.success) {
+      if (this.meetingAudioStorage.active?.noteId === id) this.meetingAudioStorage.abort();
+      this.meetingAudioStorage.deleteForNote(id);
       setImmediate(() => broadcastToWindows("note-deleted", { id }));
       this.notifyVectorChanges();
       this._asyncMirrorDelete(id);

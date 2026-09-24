@@ -12,6 +12,7 @@ import {
   Link2,
   Lock,
   FolderOpen,
+  FileAudio,
   Search,
   Plus,
   Check,
@@ -259,6 +260,29 @@ export default function NoteEditor({
   const [newFolderName, setNewFolderName] = useState("");
   const [isDiarizing, setIsDiarizing] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [hasMeetingAudio, setHasMeetingAudio] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    const refresh = () => {
+      void window.electronAPI
+        .getMeetingAudioFiles(note.id)
+        .then((files) => {
+          if (mounted) setHasMeetingAudio(files.length > 0);
+        })
+        .catch(() => {
+          if (mounted) setHasMeetingAudio(false);
+        });
+    };
+    refresh();
+    const unsubscribe = window.electronAPI.onMeetingAudioSaved(({ noteId }) => {
+      if (noteId === note.id) refresh();
+    });
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [note.id]);
   const [shareIntent, setShareIntent] = useState<"open" | "copy-link">("open");
   const [membersDialogOpen, setMembersDialogOpen] = useState(false);
   const [aclRetryVersion, setAclRetryVersion] = useState(0);
@@ -1015,6 +1039,23 @@ export default function NoteEditor({
                 <Loader2 size={10} className="animate-spin" />
                 {t("notes.editor.saving")}
               </span>
+            )}
+            {hasMeetingAudio && (
+              <button
+                type="button"
+                className={NOTE_META_CHIP_CLASS}
+                onClick={() => {
+                  void window.electronAPI
+                    .showMeetingAudioInFolder(note.id)
+                    .then(({ success }) => {
+                      if (!success) setHasMeetingAudio(false);
+                    })
+                    .catch(() => setHasMeetingAudio(false));
+                }}
+              >
+                <FileAudio size={14} className="shrink-0 text-foreground/60" />
+                {t("notes.editor.showRecording", { defaultValue: "Show recording" })}
+              </button>
             )}
           </div>
           <div className="mt-5 flex items-center justify-between gap-3">
