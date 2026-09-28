@@ -149,6 +149,12 @@ function installInteractiveDom(t) {
     nodeType: 9,
     nodeName: "#document",
     activeElement: null,
+    // Tells react-dom's feature detection ("oninput" in document) that native
+    // input events are supported, so it skips its legacy IE9-and-below
+    // keydown/keyup value-change polyfill — that path calls attachEvent,
+    // which this fake DOM doesn't implement, and crashes on any keydown
+    // dispatched at a text input or textarea.
+    oninput: null,
     createElement: (tagName) => new FakeElement(tagName, document),
     createElementNS: (namespaceURI, tagName) => new FakeElement(tagName, document, namespaceURI),
     createTextNode: (value) => new FakeText(String(value), document),

@@ -12,7 +12,8 @@ import type {
   LocalServerPrefs,
   SelfHostedType,
 } from "../types/electron";
-import type { CalendarAccount } from "../types/calendar";
+import type { CalendarAccount, MicrosoftCalendarAccount } from "../types/calendar";
+import { normalizeEmailDraftTarget, type EmailDraftTargetSetting } from "../utils/emailDraftTarget";
 import { PROMPT_KIND_LIST, type PromptKind } from "../config/prompts/registry";
 import { sweepRetiredPromptOverrides } from "../config/retiredPrompts";
 import { sweepRetiredCloudModelSelections } from "../config/retiredCloudModels";
@@ -889,7 +890,7 @@ export interface SettingsState
   gcalAccounts: CalendarAccount[];
   gcalConnected: boolean;
   gcalEmail: string;
-  mcalAccounts: CalendarAccount[];
+  mcalAccounts: MicrosoftCalendarAccount[];
   mcalConnected: boolean;
   notificationsEnabled: boolean;
   notifyMeetingDetection: boolean;
@@ -987,6 +988,7 @@ export interface SettingsState
   // Voice-agent screen context: opt-in screenshot capture, plus an optional
   // dedicated model used only when a screenshot is attached.
   voiceAgentScreenContext: boolean;
+  emailDraftTarget: EmailDraftTargetSetting;
   useDictationAgentVisionModel: boolean;
   dictationAgentVisionMode: InferenceMode;
   dictationAgentVisionProvider: string;
@@ -1013,6 +1015,7 @@ export interface SettingsState
   setDictationAgentCustomApiKey: (key: string) => void;
 
   setVoiceAgentScreenContext: (value: boolean) => void;
+  setEmailDraftTarget: (value: EmailDraftTargetSetting) => void;
   setUseDictationAgentVisionModel: (value: boolean) => void;
   setDictationAgentVisionProvider: (value: string) => void;
   setDictationAgentVisionModel: (value: string) => void;
@@ -1204,7 +1207,7 @@ export interface SettingsState
   setFloatingIconAutoHide: (enabled: boolean) => void;
   setStartMinimized: (enabled: boolean) => void;
   setGcalAccounts: (accounts: CalendarAccount[]) => void;
-  setMcalAccounts: (accounts: CalendarAccount[]) => void;
+  setMcalAccounts: (accounts: MicrosoftCalendarAccount[]) => void;
   setNotificationsEnabled: (value: boolean) => void;
   setNotifyMeetingDetection: (value: boolean) => void;
   setNotifyCalendarReminders: (value: boolean) => void;
@@ -1645,7 +1648,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     };
   })(),
   ...(() => {
-    let accounts: CalendarAccount[] = [];
+    let accounts: MicrosoftCalendarAccount[] = [];
     try {
       const parsed = JSON.parse(readString("mcalAccounts", "[]"));
       if (Array.isArray(parsed)) accounts = parsed;
@@ -1929,6 +1932,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   dictationAgentCustomApiKey: readString("dictationAgentCustomApiKey", ""),
 
   voiceAgentScreenContext: readBoolean("voiceAgentScreenContext", false),
+  emailDraftTarget: normalizeEmailDraftTarget(readString("emailDraftTarget", "auto")),
   useDictationAgentVisionModel: readBoolean("useDictationAgentVisionModel", false),
   // Cloud already vision-routes screenshot commands, so the override is BYOK-only.
   dictationAgentVisionMode: "providers" as InferenceMode,
@@ -1968,6 +1972,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
   ),
 
   setVoiceAgentScreenContext: createBooleanSetter("voiceAgentScreenContext"),
+  setEmailDraftTarget: createStringSetter("emailDraftTarget"),
   setUseDictationAgentVisionModel: createBooleanSetter("useDictationAgentVisionModel"),
   setDictationAgentVisionProvider: createStringSetter("dictationAgentVisionProvider"),
   setDictationAgentVisionModel: createStringSetter("dictationAgentVisionModel"),
@@ -2422,7 +2427,7 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       gcalEmail: accounts[0]?.email ?? "",
     });
   },
-  setMcalAccounts: (accounts: CalendarAccount[]) => {
+  setMcalAccounts: (accounts: MicrosoftCalendarAccount[]) => {
     if (isBrowser) localStorage.setItem("mcalAccounts", JSON.stringify(accounts));
     useSettingsStore.setState({
       mcalAccounts: accounts,
@@ -3612,6 +3617,21 @@ export async function initializeSettings(): Promise<void> {
       );
     }
 
+    // Picks up tenant ids stored after the accounts were first saved here; an
+    // empty answer (including a failed read) leaves the saved list alone.
+    try {
+      const status = await window.electronAPI.mcalGetConnectionStatus?.();
+      if (status?.accounts.length) {
+        useSettingsStore.getState().setMcalAccounts(status.accounts);
+      }
+    } catch (err) {
+      logger.warn(
+        "Failed to hydrate Microsoft Calendar accounts",
+        { error: (err as Error).message },
+        "settings"
+      );
+    }
+
     try {
       const currentState = useSettingsStore.getState();
       await window.electronAPI.gcalSetPrimaryOnly?.(currentState.gcalPrimaryOnly);
@@ -3730,6 +3750,8 @@ export async function initializeSettings(): Promise<void> {
       } else {
         value = parsed;
       }
+    } else if (key === "emailDraftTarget") {
+      value = normalizeEmailDraftTarget(newValue);
     } else {
       value = newValue;
     }

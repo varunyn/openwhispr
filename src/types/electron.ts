@@ -6,7 +6,23 @@ import type {
   ManagedEnterpriseConfig,
   ManagedEnterpriseRequestContext,
 } from "./enterpriseIdentity";
-import type { CalendarAvailabilityRequest, CalendarAvailabilityResult } from "./calendar";
+import type {
+  CalendarAvailabilityRequest,
+  CalendarAvailabilityResult,
+  MicrosoftCalendarAccount,
+} from "./calendar";
+import type {
+  ConnectorActionRecord,
+  ConnectorCancelReason,
+  ConnectorCommitResult,
+  ConnectorConnectResult,
+  ConnectorDirectResult,
+  ConnectorDisconnectResult,
+  ConnectorEdits,
+  ConnectorPrepareResult,
+  ConnectorStatus,
+  ContactMatch,
+} from "./connectors";
 
 export type LocalTranscriptionProvider = "whisper" | "nvidia" | "cohere";
 
@@ -825,6 +841,14 @@ export interface ScreenRecordingAccessResult {
 }
 
 export type CloudReasonPurpose = "cleanup" | "assistant" | "translation" | "noteFormatting";
+
+// Orukeet's audio language estimate, reported for the backend's per-user gate.
+export interface SttDetectedLanguageFields {
+  sttDetectedLanguage?: string;
+  sttDetectedLanguageConfidence?: number;
+  sttDetectedLanguageAudioSeconds?: number;
+  sttDetectedLanguageStatus?: "detected" | "unknown";
+}
 
 export interface ScreenContextImage {
   mediaType: string;
@@ -2366,7 +2390,7 @@ declare global {
           analyticsOccurredAt?: string;
           // Why a managed-streaming user's dictation went batch (rollout metric).
           streamingFallbackReason?: string;
-        }
+        } & SttDetectedLanguageFields
       ) => Promise<
         {
           success: boolean;
@@ -2394,7 +2418,7 @@ declare global {
           language?: string;
           locale?: string;
           streamingFallbackReason?: string;
-        }
+        } & SttDetectedLanguageFields
       ) => Promise<{
         success: boolean;
         text?: string;
@@ -2424,7 +2448,7 @@ declare global {
           analyticsOccurredAt?: string;
           analyticsWordCount?: number;
           analyticsCounterVersion?: number;
-        }
+        } & SttDetectedLanguageFields
       ) => Promise<{
         success: boolean;
         wordsUsed?: number;
@@ -2896,6 +2920,34 @@ declare global {
       gcalGetUpcomingEvents?: (
         windowMinutes?: number
       ) => Promise<{ success: boolean; events: any[] }>;
+      connectorStatus?: () => Promise<ConnectorStatus[]>;
+      connectorPrepare?: (
+        connectorId: string,
+        action: string,
+        args: Record<string, unknown>
+      ) => Promise<ConnectorPrepareResult>;
+      connectorCommit?: (actionId: string, edits: ConnectorEdits) => Promise<ConnectorCommitResult>;
+      /** Cancels a pending approval, or a direct run (by its runId) still waiting on policy. */
+      connectorCancel?: (
+        actionId: string,
+        reason: ConnectorCancelReason
+      ) => Promise<{ cancelled: boolean }>;
+      connectorRunDirect?: (
+        connectorId: string,
+        action: string,
+        args: Record<string, unknown>,
+        runId?: string
+      ) => Promise<ConnectorDirectResult>;
+      connectorRecentActions?: (
+        connectorId: string,
+        limit?: number
+      ) => Promise<ConnectorActionRecord[]>;
+      connectorFindContacts?: (
+        query: string
+      ) => Promise<{ contacts: ContactMatch[]; hasMore?: boolean; unavailableReason?: string }>;
+      connectorConnect?: (connectorId: string) => Promise<ConnectorConnectResult>;
+      connectorDisconnect?: (connectorId: string) => Promise<ConnectorDisconnectResult>;
+      onConnectorStatusChanged?: (callback: (statuses: ConnectorStatus[]) => void) => () => void;
       calendarGetAvailability?: (
         request: CalendarAvailabilityRequest
       ) => Promise<
@@ -3128,11 +3180,16 @@ declare global {
       onGcalEventsSynced?: (callback: (data: any) => void) => () => void;
 
       // Microsoft Calendar
-      mcalStartOAuth?: () => Promise<{ success: boolean; email?: string; error?: string }>;
+      mcalStartOAuth?: () => Promise<{
+        success: boolean;
+        email?: string;
+        tenantId?: string | null;
+        error?: string;
+      }>;
       mcalDisconnect?: (email?: string) => Promise<{ success: boolean; error?: string }>;
       mcalGetConnectionStatus?: () => Promise<{
         connected: boolean;
-        accounts: Array<{ email: string }>;
+        accounts: MicrosoftCalendarAccount[];
       }>;
       mcalSetPrimaryOnly?: (value: boolean) => Promise<{ success: boolean; error?: string }>;
       onMcalConnectionChanged?: (callback: (data: any) => void) => () => void;
