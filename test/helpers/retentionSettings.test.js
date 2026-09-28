@@ -54,7 +54,7 @@ test("keeps the current value when an incoming value is missing or unusable", ()
   }
 });
 
-test("only the main renderer can replace process-global retention settings", () => {
+test("untrusted renderers cannot replace process-global retention settings", () => {
   const mainRenderer = {};
   const auxiliaryRenderers = [{}, {}, {}];
   const managedSettings = {
@@ -103,6 +103,30 @@ test("only the main renderer can replace process-global retention settings", () 
     localHistoryPolicyResolved: false,
   });
   assert.equal(cleanupRuns, 2);
+});
+
+test("the trusted settings window can enable meeting audio retention directly", () => {
+  const mainRenderer = {};
+  const settingsRenderer = {};
+  let current = { ...DEFAULT_RETENTION_SETTINGS };
+  let synced = false;
+  const handle = createRetentionSettingsHandler({
+    getCurrentSettings: () => current,
+    getOwner: () => mainRenderer,
+    getSettingsOwner: () => settingsRenderer,
+    hasSynced: () => synced,
+    onSettingsChanged: (settings) => {
+      current = settings;
+      synced = true;
+    },
+  });
+
+  handle({ sender: settingsRenderer }, { meetingAudioRetentionEnabled: true });
+  assert.equal(current.meetingAudioRetentionEnabled, true);
+  assert.equal(synced, true);
+
+  handle({ sender: {} }, { meetingAudioRetentionEnabled: false });
+  assert.equal(current.meetingAudioRetentionEnabled, true);
 });
 
 test("meeting audio retention requires an explicit renderer setting", () => {

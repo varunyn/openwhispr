@@ -1763,6 +1763,7 @@ class IPCHandlers {
       createRetentionSettingsHandler({
         getCurrentSettings: () => this._retentionSettings,
         getOwner: () => this.windowManager.mainWindow?.webContents,
+        getSettingsOwner: () => this.windowManager.controlPanelWindow?.webContents,
         hasSynced: () => this._retentionSettingsSynced,
         onSettingsChanged: (settings) => {
           this._retentionSettings = settings;

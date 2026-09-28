@@ -54,12 +54,15 @@ function applyRetentionSettings(current, incoming) {
 function createRetentionSettingsHandler({
   getCurrentSettings,
   getOwner,
+  getSettingsOwner = () => null,
   hasSynced,
   onSettingsChanged,
 }) {
   return (event, incoming) => {
     const owner = getOwner();
-    if (!owner || event.sender !== owner) return;
+    const settingsOwner = getSettingsOwner();
+    if (event.sender !== owner && event.sender !== settingsOwner) return;
+    if (!owner && !settingsOwner) return;
 
     const { changed, settings } = applyRetentionSettings(getCurrentSettings(), incoming);
     // Before the first sync the current values are defaults, not the user's, so
