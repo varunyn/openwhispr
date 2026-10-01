@@ -504,15 +504,18 @@ export function setSessionDiarizationEnabled(enabled: boolean): void {
 }
 
 export function setSessionExpectedCount(count: number): void {
-  const clamped = Math.max(1, Math.min(MAX_SPEAKER_COUNT, count));
+  const explicit = count > 0;
+  const clamped = explicit
+    ? Math.max(1, Math.min(MAX_SPEAKER_COUNT, count))
+    : DEFAULT_EXPECTED_SPEAKER_COUNT;
   useMeetingRecordingStore.setState({
     sessionExpectedCount: clamped,
-    userTouchedStepper: true,
+    userTouchedStepper: explicit,
   });
-  pushConfig(useMeetingRecordingStore.getState().sessionDiarizationEnabled, clamped, true);
+  pushConfig(useMeetingRecordingStore.getState().sessionDiarizationEnabled, clamped, explicit);
   const noteId = useMeetingRecordingStore.getState().recordingNoteId;
   if (noteId != null) {
-    window.electronAPI?.updateNote?.(noteId, { expected_speaker_count: clamped });
+    window.electronAPI?.updateNote?.(noteId, { expected_speaker_count: explicit ? clamped : null });
   }
 }
 
@@ -600,11 +603,13 @@ function reserveSpeakerIndex(speakerId?: string) {
   nextPlaceholderSpeakerIndex = Math.max(nextPlaceholderSpeakerIndex, idx + 1);
 }
 
-// Other-speaker cap is expectedCount - 1 (the mic track is "you"); mirrors the
-// backend cap so live labels can't climb past the count the user expects.
+// Only a manual count limits provisional labels; automatic mode leaves room
+// for the audio-based identifier to discover additional voices.
 function mintPlaceholderSpeakerId(): string {
-  const expected = useMeetingRecordingStore.getState().sessionExpectedCount;
-  const cap = Math.max(1, expected - 1);
+  const state = useMeetingRecordingStore.getState();
+  const cap = state.userTouchedStepper
+    ? Math.max(1, state.sessionExpectedCount - 1)
+    : MAX_SPEAKER_COUNT;
   const index = Math.min(nextPlaceholderSpeakerIndex, cap - 1);
   nextPlaceholderSpeakerIndex = Math.max(nextPlaceholderSpeakerIndex, index + 1);
   return `speaker_${index}`;

@@ -875,13 +875,6 @@ export function MeetingTranscriptChat({
     return segment.source === "mic";
   };
 
-  const showAssumedHint =
-    !isDiarizing &&
-    sessionDiarizationEnabled &&
-    sessionExpectedCount === 2 &&
-    !(participants && participants.length > 0) &&
-    !userTouchedStepper;
-
   return (
     <div className="h-full flex flex-col">
       {consentNotice}
@@ -907,11 +900,6 @@ export function MeetingTranscriptChat({
                     ? t("notes.speaker.pill.identifying")
                     : t("notes.speaker.pill.notLabeled")}
               </span>
-              {showAssumedHint && (
-                <span className="text-muted-foreground truncate">
-                  {t("notes.speaker.pill.assumedHint")}
-                </span>
-              )}
             </div>
             <div className="flex-1" />
             {!isDiarizing && sessionDiarizationEnabled && (
@@ -922,26 +910,36 @@ export function MeetingTranscriptChat({
                 <div className="flex items-center gap-0.5 rounded-md border border-border bg-surface-2/60">
                   <button
                     onClick={() => onSetSessionExpectedCount?.(sessionExpectedCount - 1)}
-                    disabled={sessionExpectedCount <= 1}
+                    disabled={userTouchedStepper && sessionExpectedCount <= 1}
                     className="px-1.5 py-0.5 rounded-s-md hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:opacity-30 disabled:pointer-events-none transition-colors"
                     aria-label={t("notes.speaker.pill.decAria")}
                   >
                     −
                   </button>
                   <span className="px-1.5 tabular-nums" aria-live="polite">
-                    {sessionExpectedCount === 1
-                      ? t("notes.speaker.pill.justYou")
-                      : sessionExpectedCount}
+                    {!userTouchedStepper
+                      ? t("notes.speaker.pill.auto")
+                      : sessionExpectedCount === 1
+                        ? t("notes.speaker.pill.justYou")
+                        : sessionExpectedCount}
                   </span>
                   <button
                     onClick={() => onSetSessionExpectedCount?.(sessionExpectedCount + 1)}
-                    disabled={sessionExpectedCount >= MAX_SPEAKER_COUNT}
+                    disabled={userTouchedStepper && sessionExpectedCount >= MAX_SPEAKER_COUNT}
                     className="px-1.5 py-0.5 rounded-e-md hover:bg-accent focus-visible:bg-accent focus-visible:outline-none disabled:opacity-30 disabled:pointer-events-none transition-colors"
                     aria-label={t("notes.speaker.pill.incAria")}
                   >
                     +
                   </button>
                 </div>
+                {userTouchedStepper && (
+                  <button
+                    onClick={() => onSetSessionExpectedCount?.(0)}
+                    className="text-muted-foreground hover:text-foreground focus-visible:underline"
+                  >
+                    {t("notes.speaker.pill.auto")}
+                  </button>
+                )}
               </div>
             )}
             {!isDiarizing && (

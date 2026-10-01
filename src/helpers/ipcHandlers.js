@@ -1048,17 +1048,15 @@ class IPCHandlers {
       (note?.diarization_enabled == null
         ? this.speakerDiarizationEnabled
         : note.diarization_enabled !== 0) !== false;
-    return { enabled, expectedCount: this._resolveNoteExpectedSpeakerCount(note) };
+    return {
+      enabled,
+      expectedCount: this._resolveNoteExpectedSpeakerCount(note),
+      explicit: normalizeStoredSpeakerCount(note?.expected_speaker_count) != null,
+    };
   }
 
-  // Participants added mid-meeting must raise the speaker cap that was derived
-  // from the note at recording start. A count the user set via the stepper
-  // (explicit) is never overridden.
-  //
-  // Raise-only: lowering the cap below the clusters already discovered would make
-  // _assignOrForceCluster fold every later voice onto an existing speaker — the
-  // exact identity collapse this refresh exists to prevent. A roster that shrinks
-  // (or empties) mid-meeting therefore leaves the cap where it is.
+  // Keep the roster estimate available for manual adjustment without limiting
+  // automatic voice detection. A user-selected count is never overridden.
   _refreshMeetingSpeakerConfigFromNote(noteId, note) {
     const config = this.activeMeetingSpeakerConfig;
     if (!config || config.explicit) return;
@@ -1068,7 +1066,7 @@ class IPCHandlers {
     if (expectedCount == null || expectedCount <= config.expectedCount) return;
 
     this.activeMeetingSpeakerConfig = { ...config, expectedCount };
-    liveSpeakerIdentifier.setMaxSpeakers(Math.max(1, expectedCount - 1));
+    liveSpeakerIdentifier.setMaxSpeakers(MAX_SPEAKER_COUNT);
     broadcastToWindows("meeting-session-speaker-config-updated", {
       enabled: config.enabled,
       expectedCount,
@@ -7567,11 +7565,16 @@ class IPCHandlers {
     const resolveSessionMaxSpeakers = () => {
       const count = this.activeMeetingSpeakerConfig?.expectedCount;
       const total = count ? Math.min(count, MAX_SPEAKER_COUNT) : DEFAULT_EXPECTED_SPEAKER_COUNT;
-      return Math.max(1, total - 1);
+      return this.activeMeetingSpeakerConfig?.explicit ? Math.max(1, total - 1) : MAX_SPEAKER_COUNT;
     };
 
     const bindOneOnOneAttendeeToSpeaker = (speakerId) => {
       if (!meetingOneOnOneAttendee || meetingOneOnOneProfileBound || !speakerId) return;
+      if (
+        !this.activeMeetingSpeakerConfig?.explicit ||
+        this.activeMeetingSpeakerConfig.expectedCount !== 2
+      )
+        return;
       if (!resolveDiarizationEnabled()) return;
       const embedding = liveSpeakerIdentifier.getSpeakerEmbedding(speakerId);
       if (!embedding) return;
@@ -7804,9 +7807,12 @@ class IPCHandlers {
 
             bindOneOnOneAttendeeToSpeaker(identification.speakerId);
 
-            const displayName = meetingOneOnOneAttendee
-              ? meetingOneOnOneAttendee.displayName
-              : identification.displayName;
+            const displayName =
+              this.activeMeetingSpeakerConfig?.explicit &&
+              this.activeMeetingSpeakerConfig.expectedCount === 2 &&
+              meetingOneOnOneAttendee
+                ? meetingOneOnOneAttendee.displayName
+                : identification.displayName;
 
             const startTime = Math.max(
               meetingLiveSpeakerStartedAt,
@@ -8665,8 +8671,7 @@ class IPCHandlers {
           this.meetingAudioStorage.begin(meetingNoteId, recordingSessionId);
         }
 
-        // Seed the speaker cap from the note/calendar participants up front so live
-        // identification isn't stuck at the default if the renderer never pushes a config.
+        // Restore a manual count from the note; otherwise discover voices from audio.
         if (!this.activeMeetingSpeakerConfig) {
           this.activeMeetingSpeakerConfig = this._resolveInitialMeetingSpeakerConfig(meetingNoteId);
         }
@@ -8700,7 +8705,11 @@ class IPCHandlers {
             success: true,
             systemAudioMode,
             systemAudioStrategy,
-            oneOnOneAttendee: meetingOneOnOneAttendee,
+            oneOnOneAttendee:
+              this.activeMeetingSpeakerConfig?.explicit &&
+              this.activeMeetingSpeakerConfig.expectedCount === 2
+                ? meetingOneOnOneAttendee
+                : null,
           });
         }
 
@@ -8737,7 +8746,11 @@ class IPCHandlers {
             success: true,
             systemAudioMode,
             systemAudioStrategy,
-            oneOnOneAttendee: meetingOneOnOneAttendee,
+            oneOnOneAttendee:
+              this.activeMeetingSpeakerConfig?.explicit &&
+              this.activeMeetingSpeakerConfig.expectedCount === 2
+                ? meetingOneOnOneAttendee
+                : null,
           });
         }
 
@@ -8755,7 +8768,11 @@ class IPCHandlers {
           success: true,
           systemAudioMode,
           systemAudioStrategy,
-          oneOnOneAttendee: meetingOneOnOneAttendee,
+          oneOnOneAttendee:
+            this.activeMeetingSpeakerConfig?.explicit &&
+            this.activeMeetingSpeakerConfig.expectedCount === 2
+              ? meetingOneOnOneAttendee
+              : null,
         });
       } catch (error) {
         await rollbackMeetingTranscriptionStart();
@@ -11727,9 +11744,12 @@ class IPCHandlers {
           explicit: payload?.countIsExplicit === true,
         };
         liveSpeakerIdentifier.setEnabled(enabled);
-        // Live identification only labels other speakers (the mic track is "you"),
-        // so cap at expectedCount - 1 to match resolveSessionMaxSpeakers().
-        liveSpeakerIdentifier.setMaxSpeakers(Math.max(1, expectedCount - 1));
+        // Only manual counts constrain the system-audio voices (total minus you).
+        liveSpeakerIdentifier.setMaxSpeakers(
+          this.activeMeetingSpeakerConfig.explicit
+            ? Math.max(1, expectedCount - 1)
+            : MAX_SPEAKER_COUNT
+        );
         return { success: true };
       } catch (error) {
         return { success: false, error: error.message };
@@ -12298,42 +12318,27 @@ class IPCHandlers {
     return reconciledSpeakers;
   }
 
-  _resolveSpeakerExpectation({ sessionConfig, noteId, observedSpeakerIds, diarizedSource }) {
-    // Only a count the user set explicitly outranks the note: participants added
-    // mid-meeting postdate the config snapshot taken at recording start.
+  _resolveSpeakerExpectation({ sessionConfig, noteId, diarizedSource }) {
+    // Only a user-selected count constrains clustering. Calendar invitees and
+    // provisional live labels are not evidence of how many voices are audible.
     let expectedTotal = sessionConfig?.explicit ? sessionConfig.expectedCount : null;
-
     if (!expectedTotal && noteId != null) {
       try {
-        expectedTotal = this._noteExpectedSpeakerCountOrNull(this.databaseManager.getNote(noteId));
+        expectedTotal = normalizeStoredSpeakerCount(
+          this.databaseManager.getNote(noteId)?.expected_speaker_count
+        );
       } catch (_) {
         expectedTotal = null;
       }
     }
 
-    // Diarizing the mic track (in-person session) means the user is one of the
-    // diarized voices, so the expected total applies without the -1 the
-    // system-audio branches use.
-    const micMode = diarizedSource === "mic";
-
     if (expectedTotal) {
       const total = Math.min(expectedTotal, MAX_SPEAKER_COUNT);
-      const numSpeakers = micMode ? total : Math.max(1, total - 1);
+      const numSpeakers = diarizedSource === "mic" ? total : Math.max(1, total - 1);
       return { numSpeakers, cap: numSpeakers };
     }
 
-    if (observedSpeakerIds.size >= 2) {
-      const numSpeakers = Math.min(observedSpeakerIds.size, MAX_SPEAKER_COUNT);
-      return { numSpeakers, cap: numSpeakers };
-    }
-
-    if (micMode) {
-      return { numSpeakers: -1, cap: DEFAULT_EXPECTED_SPEAKER_COUNT };
-    }
-
-    // Only system audio reaches the diarizer (the mic track is "you"), so the cap
-    // counts other speakers — same total - 1 basis as the branches above.
-    return { numSpeakers: -1, cap: Math.max(1, DEFAULT_EXPECTED_SPEAKER_COUNT - 1) };
+    return { numSpeakers: -1, cap: MAX_SPEAKER_COUNT };
   }
 
   _startOrSkipDiarization(

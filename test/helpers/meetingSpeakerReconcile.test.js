@@ -156,7 +156,7 @@ test("roster changes refresh an auto-derived speaker config", () => {
   const { fakeThis, liveSpeakerIdentifier, broadcasts } = refreshConfig(false);
 
   assert.equal(fakeThis.activeMeetingSpeakerConfig.expectedCount, 4);
-  assert.equal(liveSpeakerIdentifier.maxSpeakers, 3);
+  assert.equal(liveSpeakerIdentifier.maxSpeakers, 8);
   assert.equal(broadcasts.length, 1);
   assert.equal(broadcasts[0].channel, "meeting-session-speaker-config-updated");
   assert.deepEqual(broadcasts[0].payload, { enabled: true, expectedCount: 4 });
@@ -169,9 +169,8 @@ test("an explicit stepper count is never overridden by roster changes", () => {
   assert.deepEqual(broadcasts, []);
 });
 
-// Lowering the cap below the clusters already discovered makes the identifier
-// fold every later voice onto an existing speaker — the collapse this refresh
-// exists to prevent. A shrinking or emptied roster must be ignored.
+// Roster estimates remain raise-only for manual adjustment; a shrinking or
+// emptied roster does not change automatic detection.
 test("a shrinking roster leaves the speaker cap untouched", () => {
   const shrunk = refreshConfig(false, {
     expectedCount: 4,
@@ -203,11 +202,9 @@ function makeExpectationResolver() {
     );
 }
 
-// System mode: only system audio reaches the diarizer (the mic track is "you"),
-// so every branch must report `cap` as a count of other speakers (total - 1).
-// The no-signal fallback used to return the total itself, which let one remote
-// voice split across two labels.
-test("speaker expectation reports cap as other-speaker count in every system-mode branch", () => {
+// A manual total includes you; automatic mode leaves the final count to audio
+// clustering, even when live identification saw only one remote voice.
+test("automatic speaker expectation ignores provisional labels and only honors manual counts", () => {
   const resolve = makeExpectationResolver();
 
   assert.deepEqual(
@@ -222,13 +219,13 @@ test("speaker expectation reports cap as other-speaker count in every system-mod
   );
   assert.deepEqual(
     resolve({ observedSpeakerIds: new Set(["speaker_0", "speaker_1"]) }),
-    { numSpeakers: 2, cap: 2 },
-    "observed ids are already other-speaker ids"
+    { numSpeakers: -1, cap: 8 },
+    "provisional labels must not constrain the final audio-based count"
   );
   assert.deepEqual(
     resolve({}),
-    { numSpeakers: -1, cap: 1 },
-    "the default total of 2 means a single other speaker, not 2"
+    { numSpeakers: -1, cap: 8 },
+    "automatic mode must allow multiple remote voices"
   );
 });
 
@@ -244,7 +241,42 @@ test("mic mode counts the user among the expected speakers", () => {
   );
   assert.deepEqual(
     resolve({ diarizedSource: "mic" }),
-    { numSpeakers: -1, cap: 2 },
-    "the no-signal fallback caps at the default expected total, user included"
+    { numSpeakers: -1, cap: 8 },
+    "automatic mode also discovers voices in mic-only recordings"
   );
+});
+
+test("calendar invitees are not a fixed count of audible speakers", () => {
+  const resolve = makeExpectationResolver();
+  assert.deepEqual(
+    resolve({
+      sessionConfig: { expectedCount: 2, explicit: false },
+      noteId: NOTE_ID,
+      note: { participants: JSON.stringify(THREE_ATTENDEES) },
+      observedSpeakerIds: new Set(["speaker_0"]),
+    }),
+    { numSpeakers: -1, cap: 8 }
+  );
+});
+
+test("initial speaker configuration defaults to automatic even with a calendar roster", () => {
+  const { IPCHandlers } = loadHandlers();
+  const handlers = Object.assign(Object.create(IPCHandlers.prototype), {
+    speakerDiarizationEnabled: true,
+    databaseManager: {
+      getNote: () => ({ participants: JSON.stringify(THREE_ATTENDEES) }),
+      getGoogleAccounts: () => [],
+    },
+  });
+  assert.deepEqual(handlers._resolveInitialMeetingSpeakerConfig(NOTE_ID), {
+    enabled: true,
+    expectedCount: 4,
+    explicit: false,
+  });
+  handlers.databaseManager.getNote = () => ({ expected_speaker_count: 3 });
+  assert.deepEqual(handlers._resolveInitialMeetingSpeakerConfig(NOTE_ID), {
+    enabled: true,
+    expectedCount: 3,
+    explicit: true,
+  });
 });
