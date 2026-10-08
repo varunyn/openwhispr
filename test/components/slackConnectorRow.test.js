@@ -64,14 +64,20 @@ test("Connect runs the browser flow once and says why it failed", async (t) => {
       `,
     },
   });
-  const { SlackConnectorRow } = await vite.ssrLoadModule(
-    "/components/connectors/SlackConnectorRow.tsx"
-  );
+  const [{ ConnectorLoginRow }, { CONNECTOR_ROWS }] = await Promise.all([
+    vite.ssrLoadModule("/components/connectors/ConnectorLoginRow.tsx"),
+    vite.ssrLoadModule("/components/connectors/connectorRows.tsx"),
+  ]);
+  const row = CONNECTOR_ROWS.find((entry) => entry.id === "slack");
   const { createRoot } = require("react-dom/client");
   root = createRoot(container);
   await React.act(async () =>
     root.render(
-      React.createElement(SlackConnectorRow, { isPaid: true, blockedByOrg: false, onUpgrade() {} })
+      React.createElement(ConnectorLoginRow, {
+        row,
+        isPaid: true,
+        blockedByOrg: false,
+      })
     )
   );
 
@@ -120,14 +126,20 @@ async function renderDisconnectedRow(t, { connectorConnect }) {
       `,
     },
   });
-  const { SlackConnectorRow } = await vite.ssrLoadModule(
-    "/components/connectors/SlackConnectorRow.tsx"
-  );
+  const [{ ConnectorLoginRow }, { CONNECTOR_ROWS }] = await Promise.all([
+    vite.ssrLoadModule("/components/connectors/ConnectorLoginRow.tsx"),
+    vite.ssrLoadModule("/components/connectors/connectorRows.tsx"),
+  ]);
+  const row = CONNECTOR_ROWS.find((entry) => entry.id === "slack");
   const { createRoot } = require("react-dom/client");
   root = createRoot(container);
   await React.act(async () =>
     root.render(
-      React.createElement(SlackConnectorRow, { isPaid: true, blockedByOrg: false, onUpgrade() {} })
+      React.createElement(ConnectorLoginRow, {
+        row,
+        isPaid: true,
+        blockedByOrg: false,
+      })
     )
   );
   return container;
@@ -211,14 +223,20 @@ async function renderConnectedRow(t, { connectorDisconnect }) {
       `,
     },
   });
-  const { SlackConnectorRow } = await vite.ssrLoadModule(
-    "/components/connectors/SlackConnectorRow.tsx"
-  );
+  const [{ ConnectorLoginRow }, { CONNECTOR_ROWS }] = await Promise.all([
+    vite.ssrLoadModule("/components/connectors/ConnectorLoginRow.tsx"),
+    vite.ssrLoadModule("/components/connectors/connectorRows.tsx"),
+  ]);
+  const row = CONNECTOR_ROWS.find((entry) => entry.id === "slack");
   const { createRoot } = require("react-dom/client");
   root = createRoot(container);
   await React.act(async () =>
     root.render(
-      React.createElement(SlackConnectorRow, { isPaid: true, blockedByOrg: false, onUpgrade() {} })
+      React.createElement(ConnectorLoginRow, {
+        row,
+        isPaid: true,
+        blockedByOrg: false,
+      })
     )
   );
   // Let the status load fired from the row's mount effect resolve and commit

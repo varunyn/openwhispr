@@ -44,6 +44,10 @@ function localReasoningStatusLabel(readiness: LocalReasoningReadiness | null): s
       return 'Model not ready';
     case 'unavailable':
       return 'Not eligible';
+    case 'unsupportedDevice':
+      return 'Not supported on this iPhone';
+    case 'unsupportedOS':
+      return 'Needs iOS 26';
     default:
       return 'Checking...';
   }
@@ -134,6 +138,11 @@ export default function AIModelsScreen(): React.JSX.Element {
     );
   }
 
+  const onDeviceUnavailable =
+    localReadiness && localReadiness.status !== 'ready'
+      ? localReasoningStatusLabel(localReadiness)
+      : undefined;
+
   return (
     <View className="flex-1 bg-systemBackground">
       <SettingsScreen>
@@ -147,7 +156,10 @@ export default function AIModelsScreen(): React.JSX.Element {
               iconStyle="line"
               {...WORKFLOW_ICONS[scope]}
               title={WORKFLOW_LABELS[scope]}
-              subtitle={workflowSummary(config, scope, activeMode, missingKeys.includes(scope))}
+              subtitle={workflowSummary(config, scope, activeMode, {
+                keyMissing: missingKeys.includes(scope),
+                onDeviceUnavailable,
+              })}
               onPress={() => router.push({ pathname: '/(account)/ai-workflow', params: { scope } })}
             />
           ))}

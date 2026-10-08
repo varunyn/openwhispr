@@ -5,26 +5,35 @@ import { isEnterpriseProvider } from "../../models/ModelRegistry";
 import { providerSupportsImages } from "../../services/ai/inferenceProviders";
 import { getSettings, useSettingsStore } from "../../stores/settingsStore";
 import { resolveChatStreamingInference } from "../../helpers/dictationAgentInference.js";
+import { describeProviderError } from "../../utils/describeProviderError";
 import logger from "../../utils/logger";
 import {
   isAgentAllowed,
   isConnectorsAllowed,
+  isConnectorsBlockedByOrg,
   isLlmSelectionAllowed,
   isWebSearchAllowed,
+  isWebSearchBlockedByOrg,
 } from "../../stores/policyRules";
 import { usePolicyStore } from "../../stores/policyStore";
 import { getUsageState } from "../../lib/usageStore";
 import { readIsSubscribed } from "../../lib/subscriptionFlag";
 import { hasConnectorPlan } from "../../utils/connectorEligibility";
-import { resolveEmailDraftTarget } from "../../utils/emailDraftTarget";
-import { ensureConnectorStatus, isConnectorReady } from "../../stores/connectorStatusStore";
+import { gmailSendStatus, resolveEmailDraftTarget } from "../../utils/emailDraftTarget";
+import {
+  ensureConnectorStatus,
+  readyConnectorIds,
+  useConnectorStatusStore,
+} from "../../stores/connectorStatusStore";
 import {
   appendDictionarySuffix,
   appendPlainTextResponseSuffix,
   appendScreenContextSuffix,
   getAgentSystemPrompt,
 } from "../../config/prompts";
+import { resolveUnavailableCapabilities } from "../../config/agentCapabilities";
 import { getDictionaryHintWords } from "../../utils/snippets";
+import { noteAttendeesContext, withoutAttendeesFence } from "../../utils/noteAttendees";
 import { createToolRegistry } from "../../services/tools";
 import {
   executeTool,
@@ -32,9 +41,12 @@ import {
   type ToolRegistry,
 } from "../../services/tools/ToolRegistry";
 import { createToolExecutionScope, type ToolExecutionScope } from "./toolExecutionScope";
+import { isQueryResultData } from "../../services/tools/connectors/runQueryAction";
 import { getAgentToolActivityRemainingMs } from "../../helpers/agentToolPresentation";
 import type { Message, AgentState, ChatImageAttachment, ToolCallInfo } from "./types";
+import { toHistoryMessages, withoutEchoedToolTrace, type HistoryMessage } from "./historyMessages";
 import type { ContainerScope } from "../../types/chat";
+import type { NoteAttendeesRequest } from "../../types/connectors";
 import {
   buildAgentRequestText,
   type AgentSelectionContext,
@@ -49,6 +61,22 @@ const LOCAL_TOOL_MIN_PARAMS_B = 4;
 function estimateModelSizeB(modelId: string): number {
   const match = modelId.match(/-([\d.]+)[bB]/);
   return match ? parseFloat(match[1]) : 0;
+}
+
+// Main adds the note's identified speakers and its calendar event's
+// organizer (calendars often leave them out of the attendees), then drops
+// the user (their OpenWhispr address included) and rooms with find_contact's
+// rules; a failed lookup just leaves the block out.
+async function buildNoteAttendeesContext(
+  meeting: NoteAttendeesRequest | undefined
+): Promise<string> {
+  if (!meeting || !window.electronAPI?.connectorNoteAttendees) return "";
+  try {
+    const result = await window.electronAPI.connectorNoteAttendees(meeting);
+    return noteAttendeesContext(result?.attendees ?? []);
+  } catch {
+    return "";
+  }
 }
 
 async function buildRAGContext(userText: string, scope?: ContainerScope): Promise<string> {
@@ -99,6 +127,17 @@ interface UseChatStreamingOptions {
    * policy allow them. Off unless a surface opts in: they act outside the app.
    */
   allowConnectors?: boolean;
+  /**
+   * Name capabilities that exist but aren't usable here, and how to turn them
+   * on. Off only where the request already says what to do without them (the
+   * onboarding demo answers with suggested times instead).
+   */
+  nameUnavailableCapabilities?: boolean;
+  /**
+   * The note's meeting (note chat). Its attendees are listed for the model
+   * only in a send that offers connector tools, so recipients come from them.
+   */
+  noteMeeting?: NoteAttendeesRequest;
   onStreamComplete?: (assistantId: string, content: string, toolCalls?: ToolCallInfo[]) => void;
   /** Fires exactly once when displayable assistant content or tool activity becomes available. */
   onResponseContent?: () => void;
@@ -109,6 +148,11 @@ export interface SendToAIOptions {
   attachment?: ChatImageAttachment;
   /** Agent-response selection attached to this request without changing chat history. */
   selectedContext?: AgentSelectionContext;
+  /**
+   * Sent to the model in place of this turn's visible message, which is what the
+   * chat shows and saves (a note action shows its name while its prompt is sent).
+   */
+  requestText?: string;
   /** Keeps a caret-destined voice response in the compact pill while it streams. */
   suppressResponseContent?: boolean;
   /** Asks the model for plain prose because the answer will be pasted into a plain-text app. */
@@ -133,8 +177,6 @@ export interface ChatStreaming {
   cancelStream: () => void;
 }
 
-type HistoryMessage = { role: string; content: string | Array<Record<string, unknown>> };
-
 // Walks backward to the newest user message; a null transform keeps walking.
 function transformLastUserMessage(
   history: HistoryMessage[],
@@ -156,6 +198,8 @@ export function useChatStreaming({
   noteContext: externalNoteContext,
   searchScope,
   allowConnectors = false,
+  nameUnavailableCapabilities = true,
+  noteMeeting,
   onStreamComplete,
   onResponseContent,
 }: UseChatStreamingOptions): ChatStreaming {
@@ -169,6 +213,8 @@ export function useChatStreaming({
   noteContextRef.current = externalNoteContext;
   const searchScopeRef = useRef(searchScope);
   searchScopeRef.current = searchScope;
+  const noteMeetingRef = useRef(noteMeeting);
+  noteMeetingRef.current = noteMeeting;
   const toolRegistryRef = useRef<{ key: string; registry: ToolRegistry } | null>(null);
   const toolActivityStartedAtRef = useRef<number | null>(null);
   const toolActivityTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -340,28 +386,34 @@ export function useChatStreaming({
         const supportsTools = isCloudAgent || !isLocalProvider || localModelCanUseTool;
 
         const scope = searchScopeRef.current;
+        const policy = usePolicyStore.getState();
+        // The calendar tool reads the shared provider-deduped events table,
+        // so any connected provider enables it.
+        const calendarConnected =
+          settings.gcalConnected || settings.mcalConnected || settings.appleCalendarConnected;
+        const webSearchEnabled = isWebSearchAllowed(policy);
+        const connectorPlan = hasConnectorPlan(getUsageState(), readIsSubscribed());
         let registry: ToolRegistry | null = null;
+        let connectorsOffered = false;
         if (supportsTools) {
           const scopeKey = scope ? `${scope.spaceId}:${scope.folderId ?? ""}` : "";
-          // The calendar tool reads the shared provider-deduped events table,
-          // so any connected provider enables it.
-          const calendarConnected =
-            settings.gcalConnected || settings.mcalConnected || settings.appleCalendarConnected;
-          const webSearchEnabled = isWebSearchAllowed(usePolicyStore.getState());
           const connectorsAvailable =
-            allowConnectors &&
-            settings.isSignedIn &&
-            hasConnectorPlan(getUsageState(), readIsSubscribed()) &&
-            isConnectorsAllowed(usePolicyStore.getState());
-          // The first send in a window must not miss a connected Slack.
+            allowConnectors && settings.isSignedIn && connectorPlan && isConnectorsAllowed(policy);
+          // The first send in a window must not miss a connector that is already connected.
           if (connectorsAvailable) await ensureConnectorStatus();
-          const slackReady = connectorsAvailable && isConnectorReady("slack");
           const connectors = connectorsAvailable
-            ? { emailDraftTarget: resolveEmailDraftTarget(settings), slackReady }
+            ? {
+                emailDraftTarget: resolveEmailDraftTarget({
+                  ...settings,
+                  gmailStatus: gmailSendStatus(useConnectorStatusStore.getState().statuses.gmail),
+                }),
+                readyConnectorIds: readyConnectorIds(),
+              }
             : undefined;
+          connectorsOffered = connectors !== undefined;
           // Triggers ride in the tool description, so a snippet edit rebuilds the registry.
           const snippetKey = settings.snippets.map((s) => s.trigger).join("|");
-          const cacheKey = `${settings.isSignedIn}-${calendarConnected}-${settings.cloudBackupEnabled}-${scopeKey}-${webSearchEnabled}-${snippetKey}-${connectors?.emailDraftTarget ?? "no-connectors"}-${slackReady}`;
+          const cacheKey = `${settings.isSignedIn}-${calendarConnected}-${settings.cloudBackupEnabled}-${scopeKey}-${webSearchEnabled}-${snippetKey}-${connectors?.emailDraftTarget ?? "no-connectors"}-${connectors?.readyConnectorIds.join(",") ?? ""}`;
           if (toolRegistryRef.current?.key === cacheKey) {
             registry = toolRegistryRef.current.registry;
           } else {
@@ -384,23 +436,64 @@ export function useChatStreaming({
           }
         }
 
-        const ragContext = await buildRAGContext(userText, scope);
+        // Named in the prompt so the model says how to turn a capability on
+        // instead of claiming it can't; built per send, outside the registry cache.
+        const unavailable = resolveUnavailableCapabilities({
+          supportsTools,
+          isSignedIn: settings.isSignedIn,
+          webSearch: { allowed: webSearchEnabled, blockedByOrg: isWebSearchBlockedByOrg(policy) },
+          calendarConnected,
+          connectors: allowConnectors
+            ? {
+                hasPlan: connectorPlan,
+                allowed: isConnectorsAllowed(policy),
+                blockedByOrg: isConnectorsBlockedByOrg(policy),
+                statuses: useConnectorStatusStore.getState().statuses,
+              }
+            : undefined,
+          locations: {
+            account: `${t("sidebar.settings")} → ${t("settingsModal.sections.account.label")}`,
+            plans: `${t("sidebar.settings")} → ${t("settingsModal.sections.plansBilling.label")}`,
+            calendars: `${t("sidebar.integrations")} → ${t("integrations.nav.sections.calendars")}`,
+            connectors: `${t("sidebar.integrations")} → ${t("integrations.nav.sections.connectors")}`,
+            models: `${t("sidebar.settings")} → ${t("settingsModal.sections.llms.label")}`,
+          },
+        });
+
+        // A note action is about the note in context; other notes would only add noise.
+        const [ragContext, attendeesContext] = await Promise.all([
+          options?.requestText ? "" : buildRAGContext(userText, scope),
+          connectorsOffered ? buildNoteAttendeesContext(noteMeetingRef.current) : "",
+        ]);
         if (cancelled() || !mountedRef.current) return;
-        const combinedContext = [noteContextRef.current, ragContext].filter(Boolean).join("\n\n");
+        // Only main's attendee block may carry its fence: note text and search
+        // results can't fake a second list.
+        const combinedContext = [
+          withoutAttendeesFence(noteContextRef.current ?? ""),
+          attendeesContext,
+          withoutAttendeesFence(ragContext),
+        ]
+          .filter(Boolean)
+          .join("\n\n");
         // The user's dictionary rides on every conversation so replies use their
         // jargon — same suffix the dictation prompts carry.
         let systemPrompt = appendDictionarySuffix(
-          getAgentSystemPrompt(
-            registry?.getAll().map((t) => t.name),
-            combinedContext || undefined
-          ),
+          getAgentSystemPrompt(registry?.getAll(), combinedContext || undefined, {
+            unavailable: nameUnavailableCapabilities ? unavailable : [],
+            toolTrace: registry !== null,
+          }),
           getDictionaryHintWords(settings),
           settings.uiLanguage
         );
 
-        const history: HistoryMessage[] = allMessages
-          .slice(-20)
-          .map((m) => ({ role: m.role, content: m.content }));
+        const history: HistoryMessage[] = toHistoryMessages(allMessages, {
+          includeToolTrace: registry !== null,
+        });
+
+        const requestText = options?.requestText;
+        if (requestText) {
+          transformLastUserMessage(history, (message) => ({ ...message, content: requestText }));
+        }
 
         const selectedContext = options?.selectedContext;
         if (selectedContext) {
@@ -452,6 +545,7 @@ export function useChatStreaming({
         // Chat re-parses the whole answer through react-markdown on every
         // content write, so one write per streamed token made parse cost scale
         // with token count. Buffer and flush at most once per interval.
+        let rawContent = "";
         let fullContent = "";
         let contentFlushTimer: ReturnType<typeof setTimeout> | null = null;
         const cancelContentFlush = () => {
@@ -559,8 +653,9 @@ export function useChatStreaming({
               break;
             }
             if (chunk.type === "content") {
-              if (chunk.text) announceResponse();
-              fullContent += chunk.text;
+              rawContent += chunk.text;
+              fullContent = withoutEchoedToolTrace(rawContent);
+              if (fullContent) announceResponse();
               scheduleContentFlush();
             } else if (chunk.type === "tool_calls") {
               // Text that arrived before a tool step must be on screen before the
@@ -604,7 +699,9 @@ export function useChatStreaming({
                                 ...tc,
                                 status: "completed" as const,
                                 result: toolDisplayTexts.get(chunk.callId) ?? chunk.displayText,
-                                ...(chunk.metadata ? { metadata: chunk.metadata } : {}),
+                                ...(chunk.metadata && !isQueryResultData(chunk.metadata)
+                                  ? { metadata: chunk.metadata }
+                                  : {}),
                               }
                             : tc
                         ),
@@ -687,13 +784,22 @@ export function useChatStreaming({
               "reasoning"
             );
             announceResponse();
+            const failure = describeProviderError(error, t);
+            const messageError =
+              failure.technicalDetails || failure.settingsTarget
+                ? {
+                    technicalDetails: failure.technicalDetails,
+                    settingsTarget: failure.settingsTarget,
+                  }
+                : undefined;
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
                   ? {
                       ...m,
-                      content: `${t("agentMode.chat.errorPrefix")}: ${(error as Error).message}`,
+                      content: `${t("agentMode.chat.errorPrefix")}: ${failure.description}`,
                       isStreaming: false,
+                      ...(messageError ? { error: messageError } : {}),
                     }
                   : m
               )
@@ -708,6 +814,7 @@ export function useChatStreaming({
     [
       inferenceScope,
       allowConnectors,
+      nameUnavailableCapabilities,
       t,
       setMessages,
       onStreamComplete,

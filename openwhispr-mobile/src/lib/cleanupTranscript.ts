@@ -12,6 +12,13 @@ import {
   detectAgentMention,
 } from './dictationAgent';
 import { buildDictationHints } from './dictationHints';
+import {
+  LOCAL_OUTPUT_TOKEN_RESERVE,
+  countLocalReasoningTokens,
+  estimateLocalTokens,
+  getLocalReasoningReadiness,
+  getLocalReasoningUnavailableMessage,
+} from './localReasoning';
 import { withRetry, createApiRetryStrategy } from './retry';
 
 // Only 'keyboard' and 'recording' may receive agentName — notes/meeting are not dictation flows.
@@ -39,6 +46,26 @@ function createTimeoutSignal(timeoutMs: number): { signal: AbortSignal; cancel: 
     signal: controller.signal,
     cancel: () => clearTimeout(timeout),
   };
+}
+
+// Apple Intelligence stops at LOCAL_OUTPUT_TOKEN_RESERVE without an error, so a transcript
+// whose cleaned copy might not fit would come back cut short. The margin covers the
+// punctuation and capitals cleanup adds.
+const LOCAL_CLEANUP_MAX_TRANSCRIPT_TOKENS = Math.floor(LOCAL_OUTPUT_TOKEN_RESERVE * 0.8);
+
+async function localSkipReason(
+  text: string,
+  scope: 'cleanup' | 'agent',
+): Promise<string | undefined> {
+  let readiness = await getLocalReasoningReadiness();
+  // The cached answer outlives a fix in iOS Settings, so check again before refusing.
+  if (readiness.status !== 'ready') readiness = await getLocalReasoningReadiness({ refresh: true });
+  if (readiness.status !== 'ready') return getLocalReasoningUnavailableMessage(readiness);
+  if (scope !== 'cleanup') return undefined;
+  const tokens = (await countLocalReasoningTokens({ prompt: text })) ?? estimateLocalTokens(text);
+  return tokens > LOCAL_CLEANUP_MAX_TRANSCRIPT_TOKENS
+    ? 'This transcript is too long for On-Device cleanup.'
+    : undefined;
 }
 
 function isDictationCleanupContext(context: CleanupContext | undefined): boolean {
@@ -116,15 +143,27 @@ export async function cleanupTranscript(
     return rawText;
   }
   const inferenceRoute = resolved.route;
+  // Say why an on-device pass can't run, rather than retrying into a generic failure.
+  if (inferenceRoute.mode === 'local') {
+    const skipReason = await localSkipReason(rawText, scope);
+    if (skipReason) {
+      options.onSkipped?.(`${skipReason} Your raw transcript is saved.`);
+      return rawText;
+    }
+  }
   // Only provider and on-device routes take the privacy hint. A Cloud route is
   // either the user's choice or a Cloud fallback they just consented to while
   // still in private mode; hinting it would make ReasoningService demand local
   // reasoning and fail the cleanup. ReasoningService re-checks private mode for
-  // provider and local routes on its own.
+  // provider and local routes on its own. A cleanup provider route only ever
+  // comes from the provider the user saved for cleanup, so it is sent there even
+  // in On-Device mode.
   const routing =
-    inferenceRoute.mode === 'providers' || inferenceRoute.mode === 'local'
-      ? { isPrivateNote: useProcessingModeStore.getState().activeMode === 'private' }
-      : undefined;
+    inferenceRoute.mode === 'providers' && scope === 'cleanup'
+      ? { sendToChosenProvider: true }
+      : inferenceRoute.mode === 'providers' || inferenceRoute.mode === 'local'
+        ? { isPrivateNote: useProcessingModeStore.getState().activeMode === 'private' }
+        : undefined;
 
   // A custom prompt goes out with promptMode "cleanup", which turns off the
   // server's agent-name detection that the dictation agent relies on. When our

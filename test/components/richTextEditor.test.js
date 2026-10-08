@@ -100,6 +100,21 @@ function markdownOf(editor) {
   return markdown.trim();
 }
 
+test("plain text conversion removes bold applied across an editor hard break", async (t) => {
+  const { markdownToPlainText } = await import("../../src/helpers/markdownToPlainText.ts");
+  const editor = createEditor("");
+  t.after(() => editor.destroy());
+  editor
+    .chain()
+    .insertContent("first")
+    .setHardBreak()
+    .insertContent("second")
+    .selectAll()
+    .toggleBold()
+    .run();
+  assert.equal(markdownToPlainText(markdownOf(editor)), "first\\\nsecond");
+});
+
 /** Asserts the output and that loading it back gives the same Markdown. */
 function assertSaves(editor, expected) {
   const markdown = markdownOf(editor);
@@ -800,6 +815,50 @@ test("the formatting toolbar shows on selected text and empty lines only", async
   assert.deepEqual(notes.errors, []);
 });
 
+test("the empty-line toolbar sits below the caret, and above it with no room below", async (t) => {
+  const notes = await mountNotes(t, "Intro text");
+  // happy-dom has no layout: give the page and the toolbar a size, and the caret a
+  // spot on the page. Without a toolbar size, start, centre and end alignment all
+  // land on the caret, and the toolbar never needs to flip.
+  const page = happyWindow.document.documentElement;
+  const proto = happyWindow.HTMLElement.prototype;
+  const pageSize = { clientWidth: 1024, clientHeight: 768 };
+  const menuSize = { offsetWidth: 320, offsetHeight: 40 };
+  for (const [key, value] of Object.entries(pageSize)) {
+    Object.defineProperty(page, key, { value, configurable: true });
+  }
+  const originals = {};
+  for (const [key, value] of Object.entries(menuSize)) {
+    originals[key] = Object.getOwnPropertyDescriptor(proto, key);
+    Object.defineProperty(proto, key, {
+      configurable: true,
+      get() {
+        return this.classList.contains("rich-text-editor-line-menu")
+          ? value
+          : originals[key].get.call(this);
+      },
+    });
+  }
+  t.after(() => {
+    for (const key of Object.keys(pageSize)) delete page[key];
+    for (const [key, descriptor] of Object.entries(originals)) {
+      Object.defineProperty(proto, key, descriptor);
+    }
+  });
+  let caret = { left: 500, right: 500, top: 300, bottom: 320 };
+  notes.editor().view.coordsAtPos = () => caret;
+  await notes.act(() => addEmptyLastLine(notes.editor()));
+  const menu = happyWindow.document.querySelector(".rich-text-editor-line-menu");
+  const top = () => parseFloat(menu.style.top);
+  assert.equal(parseFloat(menu.style.left), caret.left, "starts at the caret");
+  assert.ok(top() > caret.bottom, `below the line (top ${top()})`);
+
+  caret = { left: 500, right: 500, top: 740, bottom: 760 };
+  await notes.act(() => addEmptyLastLine(notes.editor()));
+  assert.ok(top() + menuSize.offsetHeight < caret.top, `above the line (top ${top()})`);
+  assert.deepEqual(notes.errors, []);
+});
+
 test("the formatting toolbar stays away from code blocks, list items and nodes", async (t) => {
   const notes = await mountNotes(t, "```js\nconst a = 1;\n```\n\n- item\n\n---\n\nAfter");
   const editor = () => notes.editor();
@@ -965,3 +1024,40 @@ for (const menu of ["selection", "empty line", "table"]) {
     assert.deepEqual(notes.errors, []);
   });
 }
+
+test("the menus mount without error on an editor useEditor already destroyed", async (t) => {
+  // useEditor destroys the editor it created while rendering unless its effect
+  // runs within 1 ms, and replaces it once that effect runs. Opening a note from
+  // an IPC event (Join & transcribe) runs effects after paint, so the menus'
+  // effects, which run first, can get the destroyed one.
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const React = require("react");
+  const { createRoot } = require("react-dom/client");
+  const vite = await createRendererServer(t);
+  const { RichTextEditorFormatMenu } = await vite.ssrLoadModule(
+    "/components/ui/RichTextEditorFormatMenu.tsx"
+  );
+  const { RichTextEditorTableMenu } = await vite.ssrLoadModule(
+    "/components/ui/RichTextEditorTableMenu.tsx"
+  );
+  const editor = createEditor("Meeting notes");
+  editor.destroy();
+  const host = happyWindow.document.createElement("div");
+  happyWindow.document.body.appendChild(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await React.act(async () => root.unmount());
+    host.remove();
+  });
+
+  await React.act(async () =>
+    root.render(
+      React.createElement(
+        React.Fragment,
+        null,
+        React.createElement(RichTextEditorFormatMenu, { editor }),
+        React.createElement(RichTextEditorTableMenu, { editor })
+      )
+    )
+  );
+});
