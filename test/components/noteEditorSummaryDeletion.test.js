@@ -144,6 +144,8 @@ async function loadNoteEditor(t, permission) {
   installBrowserGlobals(t, {
     window: {
       electronAPI: {
+        getMeetingAudioFiles: async () => [],
+        onMeetingAudioSaved: () => () => {},
         getSpeakerProfiles: async () => [],
         getSpeakerMappings: async () => [],
         getActions: async () => [TEMPLATE, DEFAULT_TEMPLATE, ...(globalThis.__noteActions ?? [])],

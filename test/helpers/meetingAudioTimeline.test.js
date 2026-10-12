@@ -73,6 +73,8 @@ function harness({ native = true, local = false } = {}) {
     dropMeetingMicDiarizationCapture() {},
     ...micGate,
     meetingLocalMode: local,
+    meetingUnifiedAsrActive: false,
+    meetingLocalAudioStartedAt: { mic: null, system: null },
     meetingLocalBuffers: { mic: [], system: [] },
     meetingSendCounts: { mic: 0, system: 0 },
     _meetingSystemStreaming: { sendAudio: (buffer) => streamed.push(buffer) },
@@ -320,6 +322,19 @@ test("local transcription excludes synthetic silence while diarization retains t
   await run.restart();
   run.chunk();
   assert.equal(bytes(run.context.meetingLocalBuffers.system), 9600);
+  assert.equal(bytes(run.pcm), 484800);
+});
+
+test("continuous local transcription preserves recovery silence to align the speaker clock", async () => {
+  const run = harness({ local: true });
+  run.context.meetingUnifiedAsrActive = true;
+  await run.start();
+  run.watchdog.start({ systemAudioStrategy: "native", watchesDelivery: true });
+  run.chunk();
+  run.at(10000);
+  await run.restart();
+  run.chunk();
+  assert.equal(bytes(run.context.meetingLocalBuffers.system), bytes(run.pcm));
   assert.equal(bytes(run.pcm), 484800);
 });
 
