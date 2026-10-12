@@ -2274,8 +2274,25 @@ class IPCHandlers {
       return this.databaseManager.getNotesForSpace(spaceId, limit);
     });
 
-    ipcMain.handle("db-update-note", async (event, id, updates) => {
-      const result = this.databaseManager.updateNote(id, updates);
+    ipcMain.handle("db-get-note-undos", () => this.databaseManager.getNoteUndos());
+    ipcMain.handle("db-claim-note-undo", (_event, token) =>
+      this.databaseManager.claimNoteUndo(token)
+    );
+    ipcMain.handle("db-discard-note-undo", (_event, id, token) =>
+      this.databaseManager.discardNoteUndo(id, token)
+    );
+    ipcMain.handle("db-undo-note-update", (_event, token) => {
+      const result = this.databaseManager.undoNoteUpdate(token);
+      if (result?.success && result?.note) {
+        setImmediate(() => broadcastToWindows("note-updated", result.note));
+        this.notifyVectorChanges();
+        this._asyncMirrorWrite(result.note);
+      }
+      return result;
+    });
+
+    ipcMain.handle("db-update-note", async (event, id, updates, options) => {
+      const result = this.databaseManager.updateNote(id, updates, options);
       if (result?.success && result?.note) {
         setImmediate(() => broadcastToWindows("note-updated", result.note));
         this.notifyVectorChanges();
@@ -2729,32 +2746,50 @@ class IPCHandlers {
     });
     ipcMain.handle(
       "db-acknowledge-note-create",
-      (_, id, snapshot, cloudId, cloudUpdatedAt, ownerUserId, settleIfUnchanged) =>
-        this.databaseManager.acknowledgeNoteCreate(
+      (_, id, snapshot, cloudId, cloudUpdatedAt, ownerUserId, options) => {
+        const result = this.databaseManager.acknowledgeNoteCreate(
           id,
           snapshot,
           cloudId,
           cloudUpdatedAt,
           ownerUserId,
-          settleIfUnchanged
-        )
+          options
+        );
+        if (result.note) {
+          setImmediate(() => broadcastToWindows("note-synced", result.note));
+          this.notifyVectorChanges();
+        }
+        return result;
+      }
     );
     ipcMain.handle(
       "db-mark-note-synced-if-unchanged",
-      (_, id, snapshot, expectedCloudId, cloudUpdatedAt, ownerUserId) =>
-        this.databaseManager.markNoteSyncedIfUnchanged(
+      (_, id, snapshot, expectedCloudId, cloudUpdatedAt, ownerUserId, cloudRevision, cloudNote) => {
+        const result = this.databaseManager.markNoteSyncedIfUnchanged(
           id,
           snapshot,
           expectedCloudId,
           cloudUpdatedAt,
-          ownerUserId
-        )
+          ownerUserId,
+          cloudRevision,
+          cloudNote
+        );
+        // The ack took the server's copy of a field: refresh open editors.
+        if (result.note) {
+          setImmediate(() => broadcastToWindows("note-synced", result.note));
+          this.notifyVectorChanges();
+        }
+        return result;
+      }
     );
-    ipcMain.handle("db-set-note-cloud-base", (_, id, cloudUpdatedAt) =>
-      this.databaseManager.setNoteCloudBase(id, cloudUpdatedAt)
+    ipcMain.handle("db-set-note-cloud-base", (_, id, cloudUpdatedAt, cloudRevision, options) =>
+      this.databaseManager.setNoteCloudBase(id, cloudUpdatedAt, cloudRevision, options)
     );
     ipcMain.handle("db-set-note-owner-from-cloud", (_, id, ownerUserId) =>
       this.databaseManager.setNoteOwnerFromCloud(id, ownerUserId)
+    );
+    ipcMain.handle("db-count-notes-missing-revision", (_, spaceKind) =>
+      this.databaseManager.countNotesMissingRevision(spaceKind)
     );
     ipcMain.handle("db-count-team-notes-missing-owner", () =>
       this.databaseManager.countTeamNotesMissingOwner()
@@ -10106,6 +10141,7 @@ class IPCHandlers {
             systemPrompt: opts.systemPrompt,
             tools: opts.tools,
             ...(opts.screenContext ? { screenContext: opts.screenContext } : {}),
+            ...(opts.noteChat ? { noteChat: true } : {}),
             sessionId: this.sessionId,
             clientType: "desktop",
             appVersion: app.getVersion(),
@@ -12354,7 +12390,11 @@ class IPCHandlers {
 
     ipcMain.handle("join-calendar-meeting", async (_event, eventId) => {
       try {
-        await this.meetingDetectionEngine.joinCalendarMeeting(eventId);
+        // Sent from the open panel, which may have just opened the meeting
+        // link: leave the meeting in front rather than pulling the panel back.
+        await this.meetingDetectionEngine.joinCalendarMeeting(eventId, "calendar-join", {
+          activate: false,
+        });
         return { success: true };
       } catch (error) {
         return { success: false, error: error.message };

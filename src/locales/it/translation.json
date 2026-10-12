@@ -212,7 +212,8 @@
     "policyUnresolved": "Le impostazioni della tua organizzazione non sono ancora state caricate. Riprova tra un momento.",
     "managedConfigLoading": "Verifica della configurazione gestita della tua organizzazione in corso. Riprova tra un momento.",
     "managedConfigUnavailable": "L'accesso aziendale gestito non è disponibile. Accedi di nuovo o contatta l'amministratore.",
-    "managedPolicyConflict": "L'accesso gestito è bloccato dai criteri del tuo spazio di lavoro. Contatta l'amministratore."
+    "managedPolicyConflict": "L'accesso gestito è bloccato dai criteri del tuo spazio di lavoro. Contatta l'amministratore.",
+    "resizePanel": "Ridimensiona il pannello"
   },
   "onboarding": {
     "rehaul": {
@@ -1491,6 +1492,7 @@
   },
   "settingsModal": {
     "managedByOrg": "Alcune impostazioni sono gestite dalla tua organizzazione.",
+    "managedAccount": "Account gestito",
     "groups": {
       "account": "Account",
       "app": "App",
@@ -3183,6 +3185,7 @@
     },
     "actions": {
       "allActions": "Tutte le azioni",
+      "selectAction": "Seleziona azione",
       "manage": "Gestisci azioni...",
       "addAction": "Nuova azione",
       "editAction": "Modifica azione",
@@ -3202,7 +3205,7 @@
       "emptyReply": "Il modello ha restituito una risposta vuota. Riprova o scegli un altro modello.",
       "builtin": {
         "generateNotes": {
-          "name": "Genera note",
+          "name": "Riepilogo AI",
           "description": "Pulire, strutturare e migliorare le note"
         },
         "followUpEmail": {
@@ -3211,7 +3214,7 @@
           "cta": "Scrivi un'email di follow-up"
         },
         "detailedNotes": {
-          "name": "Riepilogo AI",
+          "name": "Note dettagliate",
           "description": "Note di riunione accurate e complete con decisioni e azioni"
         },
         "makeTodos": {
@@ -3239,19 +3242,24 @@
           "description": "Flusso di lavoro, problemi, reazioni e citazioni di un partecipante"
         },
         "shorten": {
-          "name": "Accorcia",
-          "description": "Rendi il riepilogo lungo circa la metà",
-          "cta": "Accorcia il riepilogo"
+          "name": "Accorcia le note",
+          "description": "Accorcia il riepilogo IA salvato mantenendo i fatti principali",
+          "cta": "Accorcia le note"
         },
         "addTldr": {
-          "name": "Aggiungi TL;DR",
-          "description": "Metti un TL;DR di due o tre frasi all'inizio del riepilogo",
-          "cta": "Aggiungi un TL;DR"
+          "name": "Scrivi un breve riepilogo",
+          "description": "Scrivi un riepilogo di due o tre frasi nella chat",
+          "cta": "Scrivi un breve riepilogo"
         },
         "slackUpdate": {
           "name": "Aggiornamento Slack",
           "description": "Scrivi un breve aggiornamento per il team da pubblicare su Slack",
           "cta": "Scrivi un aggiornamento Slack"
+        },
+        "lengthen": {
+          "name": "Amplia le note",
+          "description": "Amplia il riepilogo IA salvato con dettagli supportati dal contenuto",
+          "cta": "Amplia le note"
         }
       },
       "errors": {
@@ -3264,12 +3272,10 @@
       },
       "tab": "Azioni",
       "output": {
-        "auto": "Automatico",
         "chat": "Chat",
         "summary": "Riepilogo AI",
-        "chatHint": "Risponde nella chat della nota e lascia invariato il riepilogo AI.",
-        "summaryHint": "Modifica il riepilogo AI della nota, oppure lo scrive dalla trascrizione se non c'è ancora.",
-        "autoHint": "Legge il prompt al salvataggio e sceglie la chat o il riepilogo AI."
+        "chatHint": "Questa azione risponde nella chat. Il riepilogo IA salvato resta invariato.",
+        "summaryHint": "Questa azione integrata aggiorna il riepilogo IA salvato. Puoi annullare la modifica."
       },
       "applied": "Riepilogo AI aggiornato con {{name}}"
     },
@@ -3278,6 +3284,7 @@
       "managerTitle": "Modelli e azioni",
       "manage": "Gestisci modelli...",
       "select": "Scegli modello",
+      "regenerate": "Rigenera",
       "addTemplate": "Nuovo modello",
       "editTemplate": "Modifica modello",
       "namePlaceholder": "Nome del modello",
@@ -3293,7 +3300,8 @@
       "noSectionsHint": "Senza sezioni, il contesto è l'intera istruzione per il riepilogo.",
       "noTemplates": "Nessun modello ancora",
       "emptyEditorTitle": "Seleziona un modello",
-      "emptyEditorDescription": "Scegli un modello dall'elenco o creane uno nuovo"
+      "emptyEditorDescription": "Scegli un modello dall'elenco o creane uno nuovo",
+      "outputHint": "Applicare un modello crea o sostituisce il riepilogo IA usando le tue note e la trascrizione."
     },
     "empty": {
       "title": "Ancora nessuna nota qui",
@@ -3412,13 +3420,18 @@
         "chips": {
           "catchUp": "Aggiornami",
           "keyDecisions": "Elenca le decisioni chiave",
-          "inFlight": "Mostra i progetti in corso"
+          "openActionItems": "Elenca le attività aperte"
         }
       },
       "invite": "Invita",
       "author": {
         "you": "Tu"
       }
+    },
+    "assistantUndo": {
+      "applied": "L’assistente ha aggiornato «{{title}}»",
+      "changed": "Questa nota è cambiata dopo la modifica dell’assistente. Non è più possibile annullarla.",
+      "failed": "Impossibile annullare la modifica. Riprova."
     }
   },
   "dictionary": {
@@ -3805,7 +3818,10 @@
       "typeMessage": "Scrivi un messaggio...",
       "send": "Invia",
       "voiceDraftStreamingOnly": "L'input vocale non è disponibile con il tuo provider di trascrizione: supporta solo la dettatura dal vivo. Scegli un altro provider in Impostazioni → Da voce a testo.",
-      "commands": "Comandi"
+      "commands": "Comandi",
+      "slashNavigate": "per navigare",
+      "slashSelect": "per selezionare",
+      "slashClose": "per chiudere"
     },
     "tools": {
       "search_notesName": "Cerca nelle note",
@@ -3934,20 +3950,18 @@
     "mcp": {
       "description": "Chatta, cerca e lavora con le tue note in Claude, ChatGPT e Cursor.",
       "step1": "Nel tuo strumento di IA, aggiungi OpenWhispr MCP usando l'URL pubblico",
-      "step2": "Crea una chiave API con gli scope necessari.",
-      "step3": "Incolla la chiave come intestazione Authorization per connetterti.",
-      "learnMore": "Scopri di più",
       "proRequired": "Passa a un piano a pagamento per collegare OpenWhispr a Claude, ChatGPT e Cursor.",
       "worksWith": "Funziona con",
       "copyUrl": "Copia URL MCP",
-      "copied": "Copiato"
+      "copied": "Copiato",
+      "oauthTitle": "Accedi con OAuth",
+      "oauthDescription": "In un client che supporta OAuth, aggiungi l’URL del server, accedi a OpenWhispr e autorizza l’accesso. Non serve una chiave API.",
+      "apiKeyTitle": "Usa una chiave API",
+      "apiKeyDescription": "Per i client che accettano intestazioni di richiesta, crea una chiave API personale con le autorizzazioni necessarie e usa l’intestazione seguente."
     },
     "cli": {
       "description": "Dai al tuo assistente l'accesso alle note dal terminale.",
       "installLabel": "Installa",
-      "learnMore": "Leggi la documentazione",
-      "copyDocsLink": "Copia link della documentazione",
-      "docsLinkCopied": "Link della documentazione copiato",
       "viewPlans": "Visualizza i piani",
       "local": {
         "label": "Locale",
@@ -3992,7 +4006,8 @@
     },
     "connectors": {
       "description": "Lascia che l'assistente usi i tuoi strumenti. Approvi ogni email, messaggio e issue prima dell'invio."
-    }
+    },
+    "readDocs": "Leggi la documentazione"
   },
   "connectors": {
     "approval": {
@@ -4159,15 +4174,17 @@
       "descriptionSend": "L'assistente mostra una scheda email nella chat. Viene inviata dal tuo Gmail solo quando premi Invia.",
       "unavailable": "Le bozze email non sono disponibili al momento.",
       "targetLabel": "Crea bozze email in",
-      "autoResolved": "Automatico · {{target}}",
       "targets": {
         "gmail": "Gmail",
         "outlookWork": "Outlook (lavoro o scuola)",
         "outlookPersonal": "Outlook.com",
-        "mailto": "App di posta predefinita",
+        "mailto": "App di posta del sistema",
         "gmailSend": "Invia dalla chat (Gmail)",
-        "gmailSendConnectFirst": "Invia dalla chat (Gmail) · connetti Gmail qui sotto"
-      }
+        "gmailSendConnectFirst": "Invia dalla chat (Gmail) · connetti Gmail qui sotto",
+        "auto": "Automatico"
+      },
+      "automaticHint": "Attuale: {{target}}. Segue gli account collegati.",
+      "systemMailHint": "Usa il gestore di posta configurato sul computer."
     },
     "slack": {
       "title": "Slack",
@@ -4605,7 +4622,6 @@
   "apiKeysSection": {
     "title": "Chiavi API",
     "description": "Crea chiavi per accedere all'API di OpenWhispr in modo programmatico.",
-    "docsLink": "Docs API",
     "empty": "Nessuna chiave API ancora",
     "createButton": "Crea chiave API",
     "create": {
@@ -4657,16 +4673,10 @@
   },
   "embeddedChat": {
     "askPlaceholder": "Chiedi qualcosa sulla tua nota",
-    "title": "Chat",
-    "emptyState": "Fai una domanda su questa nota",
-    "dock": "Ancora nella barra laterale",
-    "undock": "Sgancia dalla barra laterale",
     "close": "Chiudi chat",
     "newChat": "Nuova chat",
     "conversationSelector": "Cambia conversazione",
-    "history": "Cronologia",
-    "quickActions": "Azioni rapide",
-    "generateSummary": "Genera riepilogo"
+    "history": "Cronologia"
   },
   "transcriptionPreview": {
     "label": "Anteprima",
