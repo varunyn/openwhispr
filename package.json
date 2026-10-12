@@ -34,7 +34,7 @@
     "postinstall": "electron-builder install-app-deps",
     "build:renderer": "cd src && vite build",
     "compile:mac-icon": "node scripts/compile-macos-icon.js",
-    "prebuild:mac": "npm run compile:native && npm run compile:mac-icon && npm run download:whisper-cpp && npm run download:llama-server && npm run download:sherpa-onnx && npm run download:yt-dlp && npm run download:qdrant && npm run download:meeting-aec-helper && npm run download:whisper-vad-model && npm run download:diarization-models -- --output-dir resources/bin/diarization-models && npm run download:brand-fonts",
+    "prebuild:mac": "npm run compile:native && node scripts/build-nemotron-live.js --if-available && node scripts/build-unified-meeting-asr.js --if-available && npm run compile:mac-icon && npm run download:whisper-cpp && npm run download:llama-server && npm run download:sherpa-onnx && npm run download:yt-dlp && npm run download:qdrant && npm run download:meeting-aec-helper && npm run download:whisper-vad-model && npm run download:diarization-models -- --output-dir resources/bin/diarization-models && npm run download:brand-fonts",
     "build:mac": "npm run build:renderer && electron-builder --mac",
     "build:mac:arm64": "npm run build:renderer && electron-builder --mac --arm64",
     "build:mac:x64": "npm run build:renderer && electron-builder --mac --x64",

@@ -163,3 +163,19 @@ test("mic mode still dedupes bleed-flagged mic echoes of system text first", () 
   assert.equal(merged.length, 1);
   assert.equal(merged[0].source, "system");
 });
+
+test("actual speech end prevents a short reply inheriting the following speaker's long turn", () => {
+  const manager = new DiarizationManager();
+  const result = manager.mergeWithTranscript(
+    [
+      { ...systemSegment(1, "Yes."), endTimestamp: 1.4 },
+      { ...systemSegment(5, "The next person's response."), endTimestamp: 7 },
+    ],
+    [
+      { start: 1, end: 1.4, speaker: "speaker_0" },
+      { start: 1.5, end: 7, speaker: "speaker_1" },
+    ]
+  );
+  assert.equal(result[0].speaker, "speaker_0");
+  assert.equal(result[1].speaker, "speaker_1");
+});

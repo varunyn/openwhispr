@@ -14,6 +14,7 @@ export interface MeetingSegmentEvent {
   source: "mic" | "system";
   type: "partial" | "final" | "retract";
   timestamp?: number;
+  endTimestamp?: number;
 }
 
 export interface MeetingSegmentState {
@@ -78,6 +79,7 @@ export function reduceMeetingSegmentEvent(
     text: event.text,
     source: event.source,
     timestamp: event.timestamp,
+    ...(event.endTimestamp != null ? { endTimestamp: event.endTimestamp } : {}),
   });
   const inserted = deps.decorateFinal(raw);
   const { segments, index } = insertSegmentByTimestamp(state.segments, inserted);

@@ -126,3 +126,17 @@ test("clears entries for processes that already exited", async (t) => {
 
   assert.deepEqual(sidecarPidFile.readAll(), []);
 });
+
+test("reaps stale Nemotron streaming and final-pass processes", posixOnly, async (t) => {
+  createUserDataDir(t);
+  for (const [name, scriptName] of [
+    ["nemotron-live", "nemotron-live-fake.js"],
+    ["nemotron-diarization", "nemo-speech-fake.js"],
+  ]) {
+    const child = await spawnFakeSidecar(t, { scriptName, ignoreSigterm: false });
+    sidecarPidFile.write(name, child.pid);
+    await reapStaleSidecars(GRACES);
+    assert.equal(await waitUntilDead(child.pid), true);
+  }
+  assert.deepEqual(sidecarPidFile.readAll(), []);
+});

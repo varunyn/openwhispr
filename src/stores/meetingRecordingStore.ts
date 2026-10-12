@@ -39,6 +39,7 @@ import {
   type TranscriptSpeakerLockSource,
   type TranscriptSpeakerStatus,
 } from "../utils/transcriptSpeakerState";
+import { applyLiveSpeakerIdentification as applySpeakerIdentification } from "../utils/liveSpeakerIdentification";
 import { parseTranscriptSegments } from "../utils/parseTranscriptSegments";
 import { resolveDiarizationTarget, selectBaseSegments } from "../utils/diarizationCompletion";
 import { createSerialQueue } from "../utils/serialQueue";
@@ -57,6 +58,7 @@ export interface TranscriptSegment {
   text: string;
   source: "mic" | "system";
   timestamp?: number;
+  endTimestamp?: number;
   speaker?: string;
   speakerName?: string;
   speakerIsPlaceholder?: boolean;
@@ -70,6 +72,7 @@ export interface TranscriptSegment {
 export const SIDE_PANEL_BREAKPOINT_PX = 1024;
 
 interface SpeakerIdentification {
+  provisional?: boolean;
   speakerId: string;
   displayName?: string | null;
   startTime: number;
@@ -549,28 +552,6 @@ function setSystemPartialSpeakerIdentity(speakerId: string | null, speakerName: 
   useMeetingRecordingStore.setState({
     systemPartialSpeakerId: speakerId,
     systemPartialSpeakerName: speakerName,
-  });
-}
-
-function applySpeakerIdentification(
-  segment: TranscriptSegment,
-  identification: SpeakerIdentification
-): TranscriptSegment {
-  if (
-    segment.source !== "system" ||
-    !isSegmentWithinIdentificationWindow(segment, identification) ||
-    (segment.speaker && !segment.speakerIsPlaceholder && segment.speakerStatus !== "provisional") ||
-    segment.speakerLocked
-  ) {
-    return segment;
-  }
-
-  return normalizeTranscriptSegment({
-    ...segment,
-    speaker: identification.speakerId,
-    speakerName: identification.displayName ?? segment.speakerName,
-    speakerIsPlaceholder: false,
-    speakerStatus: "confirmed",
   });
 }
 
@@ -1093,7 +1074,10 @@ export async function startRecording(args: StartRecordingArgs): Promise<boolean>
               decorateFinal: (rawSegment) => {
                 let decorated = rawSegment;
                 for (let i = speakerIdentifications.length - 1; i >= 0; i -= 1) {
-                  decorated = applySpeakerIdentification(decorated, speakerIdentifications[i]);
+                  if (isSegmentWithinIdentificationWindow(decorated, speakerIdentifications[i])) {
+                    decorated = applySpeakerIdentification(decorated, speakerIdentifications[i]);
+                    break;
+                  }
                 }
                 const provisional = assignProvisionalSpeaker(decorated);
                 reserveSpeakerIndex(provisional.speaker);

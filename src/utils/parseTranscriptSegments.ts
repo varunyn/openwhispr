@@ -8,6 +8,7 @@ export function parseTranscriptSegments(raw: string): TranscriptSegment[] {
       text: string;
       source: "mic" | "system";
       timestamp?: number;
+      endTimestamp?: number;
       speaker?: string;
       speakerName?: string;
       speakerIsPlaceholder?: boolean;
@@ -23,6 +24,7 @@ export function parseTranscriptSegments(raw: string): TranscriptSegment[] {
         text: s.text,
         source: s.source,
         timestamp: s.timestamp,
+        ...(s.endTimestamp != null ? { endTimestamp: s.endTimestamp } : {}),
         speaker: s.speaker,
         speakerName: s.speakerName,
         speakerIsPlaceholder: s.speakerIsPlaceholder,

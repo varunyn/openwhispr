@@ -280,3 +280,72 @@ test("initial speaker configuration defaults to automatic even with a calendar r
     explicit: true,
   });
 });
+
+test("meeting finalization uses its selected engine and publishes normalized source-separated labels", async (t) => {
+  const fs = require("node:fs");
+  const os = require("node:os");
+  const path = require("node:path");
+  const { IPCHandlers } = loadHandlers();
+  const Manager = require("../../src/helpers/diarization");
+  const speakerEmbeddings = require("../../src/helpers/speakerEmbeddings");
+  const previousAvailable = speakerEmbeddings.isAvailable;
+  speakerEmbeddings.isAvailable = () => false;
+  t.after(() => {
+    speakerEmbeddings.isAvailable = previousAvailable;
+  });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ow-final-pass-test-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const raw = path.join(dir, "raw.pcm");
+  const wav = path.join(dir, "converted.wav");
+  fs.writeFileSync(raw, "audio");
+  fs.writeFileSync(wav, "converted");
+  const manager = new Manager();
+  let called = false;
+  manager.isMeetingDiarizationAvailable = () => true;
+  manager.isAvailable = () => false;
+  manager.convertRawPcmToWav = async () => wav;
+  manager.diarize = () => {
+    throw new Error("legacy engine must not run");
+  };
+  manager.diarizeMeeting = async () => {
+    called = true;
+    return [{ start: 0, end: 10, speaker: "speaker_0" }];
+  };
+  const instance = Object.assign(Object.create(IPCHandlers.prototype), {
+    diarizationManager: manager,
+    speakerDiarizationEnabled: true,
+    databaseManager: { getNote: () => ({}) },
+  });
+  const messages = [];
+  const win = {
+    isDestroyed: () => false,
+    webContents: { send: (channel, payload) => messages.push({ channel, payload }) },
+  };
+  const startedAt = 1791470000000;
+  await instance._startOrSkipDiarization(
+    "test-session",
+    raw,
+    startedAt,
+    [
+      { source: "system", timestamp: startedAt + 2000, text: "remote", speaker: "speaker_5" },
+      { source: "mic", timestamp: 3, text: "local" },
+    ],
+    win,
+    null,
+    { enabled: true, explicit: false },
+    42,
+    "system"
+  );
+  assert.equal(called, true);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].channel, "meeting-diarization-complete");
+  assert.deepEqual(
+    messages[0].payload.segments.map((s) => [s.timestamp, s.speaker]),
+    [
+      [2, "speaker_0"],
+      [3, "you"],
+    ]
+  );
+  assert.equal(fs.existsSync(raw), false);
+  assert.equal(fs.existsSync(wav), false);
+});

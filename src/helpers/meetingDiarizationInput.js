@@ -31,4 +31,23 @@ function resolveDiarizationInput({
   };
 }
 
-module.exports = { resolveDiarizationInput };
+function normalizeMeetingDiarizationTimestamps(segments, startedAt) {
+  return segments.map((segment) => ({
+    ...segment,
+    ...(Number.isFinite(segment.endTimestamp)
+      ? {
+          endTimestamp:
+            segment.endTimestamp > 1e9 && startedAt > 1e9
+              ? (segment.endTimestamp - startedAt) / 1000
+              : segment.endTimestamp,
+        }
+      : {}),
+    timestamp: Number.isFinite(segment.timestamp)
+      ? segment.timestamp > 1e9 && startedAt > 1e9
+        ? (segment.timestamp - startedAt) / 1000
+        : segment.timestamp
+      : undefined,
+  }));
+}
+
+module.exports = { resolveDiarizationInput, normalizeMeetingDiarizationTimestamps };

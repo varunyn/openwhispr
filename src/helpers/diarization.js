@@ -11,6 +11,7 @@ const { convertToWav } = require("./ffmpegUtils");
 const { getSafeTempDir } = require("./safeTempDir");
 const { applyConfirmedSpeaker } = require("./speakerAssignmentPolicy");
 const sidecarPidFile = require("./sidecarPidFile");
+const { NemotronDiarization } = require("./nemotronDiarization");
 const {
   transcriptsOverlap,
   transcriptsLooselyOverlap,
@@ -70,6 +71,7 @@ class DiarizationManager {
     this._processes = new Set();
     this.currentDownloadProcess = null;
     this.cachedBinaryPath = null;
+    this.nemotron = new NemotronDiarization();
   }
 
   getBinaryPath() {
@@ -88,6 +90,16 @@ class DiarizationManager {
 
   isAvailable() {
     return this.getBinaryPath() !== null && this.isModelDownloaded();
+  }
+
+  isMeetingDiarizationAvailable() {
+    return this.nemotron.isAvailable() || this.isAvailable();
+  }
+
+  async diarizeMeeting(wavPath, options = {}) {
+    if (this.nemotron.isAvailable()) return this.nemotron.diarize(wavPath, options);
+    debugLogger.info("Nemotron not bundled on this platform; using legacy meeting diarization");
+    return this.diarize(wavPath, options);
   }
 
   getModelsDir() {
@@ -487,7 +499,10 @@ class DiarizationManager {
 
       if (seg.source === diarizedSource && seg.timestamp != null) {
         const segStart = seg.timestamp;
-        const segEnd = nextTimestampAt(index, diarizedSource) ?? segStart + 2.5;
+        const segEnd =
+          Number.isFinite(seg.endTimestamp) && seg.endTimestamp > segStart
+            ? seg.endTimestamp
+            : (nextTimestampAt(index, diarizedSource) ?? segStart + 2.5);
         const midpoint = segStart + (segEnd - segStart) / 2;
         let overlapSpeaker = null;
         let nearestSpeaker = null;
@@ -614,7 +629,7 @@ class DiarizationManager {
   async shutdown() {
     const procs = [...this._processes];
     this._processes.clear();
-    await Promise.all(procs.map((p) => gracefulStopProcess(p)));
+    await Promise.all([this.nemotron.shutdown(), ...procs.map((p) => gracefulStopProcess(p))]);
   }
 }
 

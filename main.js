@@ -696,10 +696,17 @@ function initializeCoreManagers() {
 }
 
 function registerSidecars() {
+  sidecarRegistry.register("unified-meeting-asr", () =>
+    require("./src/helpers/unifiedMeetingAsr").stop()
+  );
   if (whisperManager) sidecarRegistry.register("whisper", () => whisperManager.stopServer());
   if (parakeetManager) sidecarRegistry.register("parakeet", () => parakeetManager.stopServer());
   if (diarizationManager) {
     sidecarRegistry.register("diarization", () => diarizationManager.shutdown());
+    sidecarRegistry.register("nemotron-diarization", () => diarizationManager.nemotron.shutdown());
+    sidecarRegistry.register("nemotron-live", () =>
+      require("./src/helpers/meetingLiveSpeakerIdentifier").stop()
+    );
   }
   const modelManager = require("./src/helpers/modelManagerBridge").default;
   sidecarRegistry.register("llama", () => modelManager.stopServer());

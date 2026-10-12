@@ -123,7 +123,10 @@ const MeetingAudioStorage = require("./meetingAudioStorage");
 const LocalModelDownloadStatus = require("./localModelDownloadStatus");
 const AgentStreamRequestRegistry = require("./agentStreamRequestRegistry");
 const createMeetingTranscriptionLifecycle = require("./meetingTranscriptionLifecycle");
-const liveSpeakerIdentifier = require("./liveSpeakerIdentifier");
+const liveSpeakerIdentifier = require("./meetingLiveSpeakerIdentifier");
+const unifiedMeetingAsr = require("./unifiedMeetingAsr");
+const { groupMeetingTimedWords } = require("./meetingTimedWords");
+const { createMeetingLocalDecodeQueue } = require("./meetingLocalDecodeQueue");
 const { supportsLiveSpeakerIdentification } = require("./liveSpeakerIdPolicy");
 const MeetingEchoLeakDetector = require("./meetingEchoLeakDetector");
 const createMeetingSystemAudioWatchdog = require("./meetingSystemAudioWatchdog");
@@ -142,7 +145,10 @@ const {
   MEETING_MIC_SILENCE_PEAK,
 } = require("./meetingMicGate");
 const { deriveDetectorPreferences } = require("./meetingDetectionPreferencePolicy");
-const { resolveDiarizationInput } = require("./meetingDiarizationInput");
+const {
+  resolveDiarizationInput,
+  normalizeMeetingDiarizationTimestamps,
+} = require("./meetingDiarizationInput");
 const { applySmartSpacing } = require("./smartSpacing");
 const { applyAutoLearnSetting } = require("./autoLearnSetting");
 const {
@@ -156,6 +162,7 @@ const {
 } = require("./transcriptText");
 const {
   applyConfirmedSpeaker,
+  applyProvisionalSpeaker,
   applySuggestedSpeaker,
   canAutoRelabelSpeaker,
   isSpeakerLocked,
@@ -7161,11 +7168,18 @@ class IPCHandlers {
         .join(" ")
         .trim();
 
-    const storeMeetingDiarizationSegment = (text, source, timestamp, micSuppression = null) => {
+    const storeMeetingDiarizationSegment = (
+      text,
+      source,
+      timestamp,
+      micSuppression = null,
+      endTimestamp = null
+    ) => {
       meetingDiarizationSegments.push({
         text,
         source,
         timestamp,
+        ...(endTimestamp != null ? { endTimestamp } : {}),
         committedAt: Date.now(),
         suppressionReason: source === "mic" ? micSuppression?.reason || null : null,
         hasBleedEvidence: source === "mic" ? !!micSuppression?.hasBleedEvidence : false,
@@ -7180,12 +7194,13 @@ class IPCHandlers {
       micSuppression = null,
       send = null,
       includeInLocalTranscript = false,
+      endTimestamp = null,
     }) => {
       if (includeInLocalTranscript) {
         appendMeetingLocalTranscript(text);
       }
 
-      storeMeetingDiarizationSegment(text, source, timestamp, micSuppression);
+      storeMeetingDiarizationSegment(text, source, timestamp, micSuppression, endTimestamp);
 
       if (send) {
         send("meeting-transcription-segment", {
@@ -7193,6 +7208,7 @@ class IPCHandlers {
           source,
           type: "final",
           timestamp,
+          ...(endTimestamp != null ? { endTimestamp } : {}),
         });
       }
     };
@@ -7903,7 +7919,8 @@ class IPCHandlers {
     let meetingLocalProvider = null;
     let meetingLocalModel = null;
     let meetingLocalLanguage = null;
-    let meetingLocalTranscribing = false;
+    let meetingUnifiedAsrActive = false;
+    let meetingLocalAudioStartedAt = { mic: null, system: null };
     let meetingPendingMicChunks = [];
     let meetingPendingMicFinals = [];
     let meetingPendingMicFinalTimer = null;
@@ -7981,9 +7998,13 @@ class IPCHandlers {
 
     const dispatchMeetingAudioBuffer = (buffer, source, synthetic = false, capturedAt = null) => {
       if (meetingLocalMode) {
-        // Local STT timestamps each batch with wall time, not a sample cursor.
-        // Large synthetic gaps would dilute speech and inflate the next batch.
-        if (synthetic) return;
+        // Continuous recognition preserves synthetic recovery silence so its
+        // sample clock stays aligned; standalone offline decodes omit gaps.
+        if (synthetic && !meetingUnifiedAsrActive) return;
+        meetingLocalAudioStartedAt[source] ??=
+          source === "system"
+            ? meetingDiarizationStartedAt || Date.now()
+            : capturedAt || Date.now();
         meetingLocalBuffers[source].push(buffer);
         return;
       }
@@ -8218,11 +8239,16 @@ class IPCHandlers {
                 seg.timestamp != null &&
                 seg.timestamp >= startTime &&
                 seg.timestamp <= endTime &&
-                (!seg.speaker || seg.speakerIsPlaceholder)
+                (!seg.speaker || seg.speakerIsPlaceholder || seg.speakerStatus === "provisional")
               ) {
-                applyConfirmedSpeaker(seg, {
+                const applySpeaker = identification.provisional
+                  ? applyProvisionalSpeaker
+                  : applyConfirmedSpeaker;
+                applySpeaker(seg, {
                   speaker: identification.speakerId,
-                  speakerName: displayName || seg.speakerName,
+                  speakerName:
+                    displayName ||
+                    (seg.speaker === identification.speakerId ? seg.speakerName : undefined),
                   speakerIsPlaceholder: false,
                 });
               }
@@ -8272,9 +8298,9 @@ class IPCHandlers {
       return started;
     };
 
-    const transcribeLocalMeetingChunk = async (source) => {
-      const chunks = meetingLocalBuffers[source];
-      if (!chunks.length) return;
+    const transcribeLocalMeetingChunk = async (source, flushedResult = null) => {
+      const chunks = flushedResult ? [] : meetingLocalBuffers[source];
+      if (!chunks.length && !flushedResult) return;
 
       const pcm24k = Buffer.concat(chunks);
       meetingLocalBuffers[source] = [];
@@ -8291,7 +8317,7 @@ class IPCHandlers {
         isSystemSpeaking: () =>
           meetingEchoLeakDetector.isSystemSpeaking(Date.now() - LOCAL_MEETING_CHUNK_INTERVAL_MS),
       });
-      if (verdict.action === "skip") {
+      if (verdict.action === "skip" && !meetingUnifiedAsrActive && !flushedResult) {
         debugLogger.debug(
           verdict.reason === "silence"
             ? "Skipping silent meeting chunk"
@@ -8308,8 +8334,30 @@ class IPCHandlers {
       const wav = pcm16ToWav(pcm16k);
 
       try {
-        let result;
-        if (isSherpaLocalProvider(meetingLocalProvider)) {
+        let result = flushedResult;
+        if (result) {
+          // End-of-stream words follow the same echo and duplicate policies.
+        } else if (meetingUnifiedAsrActive) {
+          try {
+            result = await unifiedMeetingAsr.feed(
+              source,
+              verdict.action === "skip" ? Buffer.alloc(pcm16k.length) : pcm16k,
+              meetingLocalAudioStartedAt[source]
+            );
+          } catch (error) {
+            await unifiedMeetingAsr.stop();
+            meetingUnifiedAsrActive = false;
+            debugLogger.warn(
+              "Continuous speech recognition failed; retrying current audio offline",
+              { error: error.message }
+            );
+            if (verdict.action === "skip") return;
+            result = await this.parakeetManager.transcribeLocalParakeet(wav, {
+              model: meetingLocalModel,
+              language: meetingLocalLanguage,
+            });
+          }
+        } else if (isSherpaLocalProvider(meetingLocalProvider)) {
           result = await this.parakeetManager.transcribeLocalParakeet(wav, {
             model: meetingLocalModel,
             language: meetingLocalLanguage,
@@ -8328,12 +8376,30 @@ class IPCHandlers {
           });
         }
 
+        if (source === "system" && result?.words?.length && meetingLiveSpeakerStartedAt != null) {
+          const timed = groupMeetingTimedWords(
+            result.text,
+            result.words,
+            meetingLocalAudioStartedAt[source],
+            1500,
+            (start, end) =>
+              liveSpeakerIdentifier.getSpeakerForInterval(
+                (start - meetingLiveSpeakerStartedAt) / 1000,
+                (Math.min(end, start + 10) - meetingLiveSpeakerStartedAt) / 1000
+              )
+          );
+          if (timed.length) result.segments = timed;
+        }
+        if (result?.segments?.length) {
+          for (const segment of result.segments) await transcribeLocalMeetingChunk(source, segment);
+          return;
+        }
         if (result?.success && result.text?.trim()) {
           const text = result.text.trim();
-          const segTimestamp = Date.now();
+          const segTimestamp = result.timestamp ?? Date.now();
           let micSuppression = null;
           if (source === "mic") {
-            const chunkDurationMs = (pcm24k.length / 2 / 24000) * 1000;
+            const chunkDurationMs = result.durationMs ?? (pcm24k.length / 2 / 24000) * 1000;
             micSuppression = shouldSuppressMicTranscriptSegment(
               segTimestamp - chunkDurationMs,
               segTimestamp
@@ -8428,6 +8494,7 @@ class IPCHandlers {
                   micSuppression,
                   send: sendLocalSegment,
                   includeInLocalTranscript: true,
+                  endTimestamp: result.endTimestamp,
                 }),
             });
             return;
@@ -8440,6 +8507,7 @@ class IPCHandlers {
             micSuppression,
             send: sendLocalSegment,
             includeInLocalTranscript: true,
+            endTimestamp: result.endTimestamp,
           });
         }
       } catch (error) {
@@ -8453,16 +8521,11 @@ class IPCHandlers {
       }
     };
 
-    const transcribeAllLocalBuffers = async () => {
-      if (meetingLocalTranscribing) return;
-      meetingLocalTranscribing = true;
-      try {
-        await transcribeLocalMeetingChunk("system");
-        await transcribeLocalMeetingChunk("mic");
-      } finally {
-        meetingLocalTranscribing = false;
-      }
-    };
+    const meetingLocalDecodeQueue = createMeetingLocalDecodeQueue(async () => {
+      await transcribeLocalMeetingChunk("system");
+      await transcribeLocalMeetingChunk("mic");
+    });
+    const transcribeAllLocalBuffers = (drain = false) => meetingLocalDecodeQueue.run({ drain });
 
     const dropMeetingMicDiarizationCapture = () => {
       if (meetingMicDiarizationStream) {
@@ -8493,6 +8556,9 @@ class IPCHandlers {
       meetingNoteId = null;
       this._activeMeetingNoteId = null;
       meetingLocalMode = false;
+      meetingUnifiedAsrActive = false;
+      void unifiedMeetingAsr.stop();
+      meetingLocalAudioStartedAt = { mic: null, system: null };
       meetingLocalBuffers = { mic: [], system: [] };
       if (meetingDiarizationStream) {
         meetingDiarizationStream.end();
@@ -8512,7 +8578,6 @@ class IPCHandlers {
       meetingLocalProvider = null;
       meetingLocalModel = null;
       meetingLocalLanguage = null;
-      meetingLocalTranscribing = false;
       meetingPendingMicChunks = [];
       resetPendingMicFinals();
       meetingAecEnabled = false;
@@ -9104,7 +9169,24 @@ class IPCHandlers {
           meetingLocalLanguage = options.language || null;
           meetingLocalWin = BrowserWindow.fromWebContents(event.sender);
           meetingLocalBuffers = { mic: [], system: [] };
+          meetingLocalAudioStartedAt = { mic: null, system: null };
           meetingLocalTranscript = "";
+          if (
+            isSherpaLocalProvider(meetingLocalProvider) &&
+            unifiedMeetingAsr.isAvailable(meetingLocalModel)
+          ) {
+            try {
+              meetingUnifiedAsrActive = await unifiedMeetingAsr.start();
+              debugLogger.info("Continuous Unified EN meeting recognition enabled");
+            } catch (error) {
+              await unifiedMeetingAsr.stop();
+              meetingUnifiedAsrActive = false;
+              debugLogger.warn(
+                "Continuous Unified EN unavailable; using local offline recognition",
+                { error: error.message }
+              );
+            }
+          }
 
           await startLiveSpeakerIdentification(meetingLocalWin, systemAudioMode);
           await startMeetingAec(systemAudioMode);
@@ -9486,9 +9568,22 @@ class IPCHandlers {
             meetingLocalTimer = null;
           }
           try {
-            await transcribeAllLocalBuffers();
+            await transcribeAllLocalBuffers(true);
+            if (meetingUnifiedAsrActive) {
+              for (const source of ["system", "mic"]) {
+                const tail = await unifiedMeetingAsr.finish(source);
+                await transcribeLocalMeetingChunk(source, tail);
+              }
+              await unifiedMeetingAsr.stop();
+              meetingUnifiedAsrActive = false;
+            }
           } catch (err) {
             debugLogger.error("Local meeting final transcription failed", { error: err.message });
+          } finally {
+            if (meetingUnifiedAsrActive) {
+              await unifiedMeetingAsr.stop();
+              meetingUnifiedAsrActive = false;
+            }
           }
           flushPendingMicFinals(true);
           const { diarizationPcmPath, diarizationSegments, diarizationStartedAt, diarizedSource } =
@@ -12857,7 +12952,11 @@ class IPCHandlers {
 
     const diarizationEnabled = (sessionConfig?.enabled ?? this.speakerDiarizationEnabled) !== false;
 
-    if (!diarizationEnabled || !this.diarizationManager?.isAvailable() || !rawPcmPath) {
+    if (
+      !diarizationEnabled ||
+      !this.diarizationManager?.isMeetingDiarizationAvailable() ||
+      !rawPcmPath
+    ) {
       send({
         segments: transcriptSegments.map((segment, index) => ({
           ...segment,
@@ -12869,7 +12968,7 @@ class IPCHandlers {
 
     const fs = require("fs");
 
-    (async () => {
+    return (async () => {
       let tmpWav = null;
       try {
         tmpWav = await this.diarizationManager.convertRawPcmToWav(rawPcmPath, 24000);
@@ -12894,7 +12993,7 @@ class IPCHandlers {
           observedSpeakerIds,
           diarizedSource,
         });
-        let diarizationSegments = await this.diarizationManager.diarize(
+        let diarizationSegments = await this.diarizationManager.diarizeMeeting(
           tmpWav,
           numSpeakers > 0 ? { numSpeakers } : {}
         );
@@ -12910,16 +13009,7 @@ class IPCHandlers {
           transcriptSegments.find((segment) => segment.source === diarizedSource)?.timestamp ||
           transcriptSegments[0]?.timestamp ||
           0;
-        const isEpochMs = startMs > 1e9;
-        const normalized = transcriptSegments.map((seg) => ({
-          ...seg,
-          timestamp:
-            seg.timestamp != null
-              ? isEpochMs
-                ? (seg.timestamp - startMs) / 1000
-                : seg.timestamp
-              : undefined,
-        }));
+        const normalized = normalizeMeetingDiarizationTimestamps(transcriptSegments, startMs);
 
         const enrichedSegments = this.diarizationManager.mergeWithTranscript(
           normalized,

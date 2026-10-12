@@ -8,6 +8,9 @@ const EXPECTED_BINARY_FRAGMENTS = {
   llama: ["llama-server"],
   qdrant: ["qdrant"],
   diarization: ["sherpa-onnx-diarize"],
+  "nemotron-diarization": ["nemo-speech"],
+  "nemotron-live": ["nemotron-live"],
+  "unified-meeting-asr": ["unified-meeting-asr"],
 };
 
 // A wedged sidecar can ignore SIGTERM entirely (observed with qdrant spinning
