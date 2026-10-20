@@ -3,6 +3,9 @@
 function createMeetingLocalDecodeQueue(decode) {
   let active = null;
   return {
+    async settle() {
+      await active;
+    },
     async run({ drain = false } = {}) {
       if (active) {
         if (!drain) return;
