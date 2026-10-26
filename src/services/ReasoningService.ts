@@ -43,6 +43,7 @@ import {
 } from "./ai/chatRequestBody";
 import { getModelFamilyConstraints } from "./ai/modelFamilyConstraints";
 import { detectEndpointDialect } from "./ai/thinkingSuppressionDialects";
+import { abortOnCancel, isRequestCancelled, requestCancelledError } from "./ai/requestCancellation";
 import { openCodeSessionHeaders } from "./ai/openCodeSession";
 import { createStreamingThinkFilter } from "./ai/streamingThinkFilter";
 import { extractApiErrorMessage } from "./ai/apiErrorMessage";
@@ -355,6 +356,7 @@ class ReasoningService extends BaseReasoningService {
       this.activeRequestControllers.add(controller);
       const timeoutSeconds = getLlmRequestTimeoutSeconds({ scope: config.inferenceScope });
       const timeoutId = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
+      const unlinkCancel = abortOnCancel(config.requestId, controller);
       try {
         const headers: Record<string, string> = {
           "Content-Type": "application/json",
@@ -421,11 +423,13 @@ class ReasoningService extends BaseReasoningService {
           if (requestGeneration !== this.requestCancellationGeneration) {
             throw httpError("Request cancelled", 499);
           }
+          if (isRequestCancelled(config.requestId)) throw requestCancelledError();
           throw llmRequestTimeoutError(timeoutSeconds);
         }
         throw error;
       } finally {
         clearTimeout(timeoutId);
+        unlinkCancel();
         this.activeRequestControllers.delete(controller);
       }
     }, createApiRetryStrategy()).catch((error) => {
@@ -694,6 +698,10 @@ class ReasoningService extends BaseReasoningService {
       model,
       surface: "llm",
     };
+    const timeoutError = () =>
+      route.kind === "self-hosted"
+        ? providerError(PROVIDER_ERROR_CODES.TIMEOUT, selfHostedErrorContext)
+        : new Error("Streaming request timed out");
     let response: Response;
     try {
       response = await fetchWithParamFallback(
@@ -712,17 +720,24 @@ class ReasoningService extends BaseReasoningService {
       clearTimeout(timeoutId);
       if ((error as Error).name === "AbortError" && abortController.signal.aborted) {
         if (!timeoutTriggered) return;
-        throw route.kind === "self-hosted"
-          ? providerError(PROVIDER_ERROR_CODES.TIMEOUT, selfHostedErrorContext)
-          : new Error("Streaming request timed out");
+        throw timeoutError();
       }
       // A stopped LAN server rejects the fetch before any response.
       throw route.kind === "self-hosted" ? asProviderError(error, selfHostedErrorContext) : error;
     }
 
     if (!response.ok) {
-      clearTimeout(timeoutId);
-      const errorText = await response.text();
+      // Keep the deadline running while the error body arrives, or a stalled body hangs.
+      let errorText: string;
+      try {
+        errorText = await response.text();
+      } catch (error) {
+        if (!abortController.signal.aborted) throw error;
+        if (!timeoutTriggered) return;
+        throw timeoutError();
+      } finally {
+        clearTimeout(timeoutId);
+      }
       logger.logReasoning("AGENT_STREAM_ERROR", {
         status: response.status,
         body: redactProviderBody(errorText),
@@ -804,9 +819,7 @@ class ReasoningService extends BaseReasoningService {
     } catch (error) {
       if ((error as Error).name === "AbortError" && abortController.signal.aborted) {
         if (!timeoutTriggered) return;
-        throw route.kind === "self-hosted"
-          ? providerError(PROVIDER_ERROR_CODES.TIMEOUT, selfHostedErrorContext)
-          : new Error("Streaming request timed out");
+        throw timeoutError();
       }
       throw error;
     } finally {
@@ -942,10 +955,18 @@ class ReasoningService extends BaseReasoningService {
       ...(reasoningEffort && provider === "gemini"
         ? { google: { thinkingConfig: { thinkingLevel: reasoningEffort, includeThoughts: false } } }
         : {}),
+      // store: false makes the SDK resend each tool step's reasoning inline
+      // (encrypted) rather than by id: a Zero Data Retention org keeps nothing
+      // to look an id up in, so the step after a tool call would 404.
       // The SDK sends a Responses effort only for model ids it knows as reasoning
       // models; forceReasoning covers newer OpenAI ids such as gpt-6-astra.
-      ...(reasoningEffort && provider === "openai"
-        ? { openai: { reasoningEffort, forceReasoning: true } }
+      ...(provider === "openai"
+        ? {
+            openai: {
+              store: false,
+              ...(reasoningEffort ? { reasoningEffort, forceReasoning: true } : {}),
+            },
+          }
         : {}),
       ...(reasoningEffort && provider === "custom" ? { openai: { reasoningEffort } } : {}),
     };
