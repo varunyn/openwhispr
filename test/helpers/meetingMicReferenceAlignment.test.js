@@ -23,6 +23,7 @@ function harness() {
     Buffer,
     meetingAudioStorage: { append() {} },
     debugLogger: { error() {} },
+    _audioFeaturePolicy: { activeFailure: () => null },
     Date: { now: () => now },
     ...micGate,
     meetingPendingMicChunks: [],
