@@ -1836,7 +1836,8 @@ declare global {
         noteType?: string | null,
         limit?: number,
         folderId?: number | null,
-        spaceId?: number | null
+        spaceId?: number | null,
+        spaceIds?: number[] | null
       ) => Promise<NoteItem[]>;
       getSpaceNotes: (spaceId: number, limit?: number) => Promise<NoteItem[]>;
       updateNote: (
@@ -1885,7 +1886,8 @@ declare global {
         query: string,
         limit?: number,
         spaceId?: number | null,
-        folderId?: number | null
+        folderId?: number | null,
+        spaceIds?: number[] | null
       ) => Promise<NoteItem[]>;
       semanticSearchNotes: (
         query: string,

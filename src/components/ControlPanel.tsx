@@ -16,6 +16,7 @@ import { useHotkey } from "../hooks/useHotkey";
 import { useToast } from "./ui/useToast";
 import { useUpdater } from "../hooks/useUpdater";
 import { useSettings } from "../hooks/useSettings";
+import { recordingRecorderName } from "../utils/noteRecorder";
 import { useAuth } from "../hooks/useAuth";
 import { useJoinableWorkspaces } from "../hooks/useJoinableWorkspaces";
 import { useUsage } from "../hooks/useUsage";
@@ -96,6 +97,7 @@ import { syncService } from "../services/SyncService.js";
 import logger from "../utils/logger";
 import AcceptInvitationModal from "./AcceptInvitationModal";
 import JoinYourTeamModal from "./JoinYourTeamModal";
+import { useInvitationNotesEntry } from "../hooks/useInvitationNotesEntry";
 import {
   consumePendingInvitationToken,
   clearPendingInvitationToken,
@@ -142,14 +144,12 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
   );
   const [showReferrals, setShowReferrals] = useState(false);
   const [invitationToken, setInvitationToken] = useState<string | null>(null);
-  const [invitationNotesEntry, setInvitationNotesEntry] = useState<{
-    workspaceId: string;
-    teamIds: string[];
-    spaceIds: string[];
-  } | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const showDiscarded = useShowDiscarded();
   const [activeView, setActiveView] = useState<ControlPanelView>("home");
+  const [invitationNotesEntry, setInvitationNotesEntry] = useInvitationNotesEntry(
+    activeView === "personal-notes"
+  );
   const [integrationsSection, setIntegrationsSection] = useState<IntegrationsSection>(
     DEFAULT_INTEGRATIONS_SECTION
   );
@@ -428,6 +428,8 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
 
   // A ref, not a per-run flag: StrictMode's remount must not cancel the first drain.
   const meetingNavigationMounted = useRef(false);
+  const recordingIdentityRef = useRef({ user, t });
+  recordingIdentityRef.current = { user, t };
   useEffect(() => {
     meetingNavigationMounted.current = true;
     const isCurrent = () => meetingNavigationMounted.current;
@@ -445,7 +447,8 @@ export default function ControlPanel({ initialSettingsSection }: ControlPanelPro
           isCurrent,
           () => import("./notes/PersonalNotesView"),
           (note) => {
-            void startRecordingForNote(note)
+            const { user: recordingUser, t: translate } = recordingIdentityRef.current;
+            void startRecordingForNote(note, recordingRecorderName(note, recordingUser, translate))
               .then((accepted) => {
                 if (!accepted) void window.electronAPI?.restoreFromMeetingMode?.();
               })

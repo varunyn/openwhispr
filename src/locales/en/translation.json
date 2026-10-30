@@ -3256,7 +3256,6 @@
       "personal": "Personal",
       "privateTooltip": "Only you can see your Personal space",
       "newSpace": "New team space",
-      "newSpaceInWorkspace": "New team space in {{workspace}}",
       "createTitle": "Create team space",
       "createDescription": "A shared area inside a workspace for the people and groups you add.",
       "nameAndIconLabel": "Name and icon",
@@ -3809,6 +3808,7 @@
     },
     "speaker": {
       "you": "You",
+      "noteTaker": "Note taker",
       "them": "Them",
       "unknown": "Unknown Speaker",
       "label": "Speaker {{n}}",
@@ -3961,7 +3961,9 @@
         "placeholder": "Add words separated by commas",
         "to": "to {{list}}",
         "chooseList": "Choose the list to add to",
-        "hiddenForYou": "Hidden for you in {{list}}"
+        "hiddenForYou": "Hidden for you in {{list}}",
+        "notAdded_one": "{{count}} word wasn't added: {{words}}",
+        "notAdded_other": "{{count}} words weren't added: {{words}}"
       },
       "alreadyIn": "Already in {{list}}",
       "importTo": "Import to {{list}}",

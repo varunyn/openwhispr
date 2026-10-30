@@ -1711,7 +1711,13 @@
         "placeholder": "أضف كلمات مفصولة بفواصل",
         "to": "إلى {{list}}",
         "chooseList": "اختر القائمة التي تريد الإضافة إليها",
-        "hiddenForYou": "مخفية عنك في {{list}}"
+        "hiddenForYou": "مخفية عنك في {{list}}",
+        "notAdded_zero": "لم تتم إضافة {{count}} كلمة: {{words}}",
+        "notAdded_one": "لم تتم إضافة كلمة واحدة ({{count}}): {{words}}",
+        "notAdded_two": "لم تتم إضافة كلمتين ({{count}}): {{words}}",
+        "notAdded_few": "لم تتم إضافة {{count}} كلمات: {{words}}",
+        "notAdded_many": "لم تتم إضافة {{count}} كلمةً: {{words}}",
+        "notAdded_other": "لم تتم إضافة {{count}} كلمة: {{words}}"
       },
       "alreadyIn": "موجودة بالفعل في {{list}}",
       "importTo": "استيراد إلى {{list}}",
@@ -2441,7 +2447,6 @@
       "personal": "شخصي",
       "privateTooltip": "أنت فقط من يمكنه رؤية مساحتك الشخصية",
       "newSpace": "مساحة فريق جديدة",
-      "newSpaceInWorkspace": "مساحة فريق جديدة في {{workspace}}",
       "createTitle": "إنشاء مساحة فريق",
       "createDescription": "منطقة مشتركة داخل مساحة عمل للأشخاص والمجموعات الذين تضيفهم.",
       "nameAndIconLabel": "الاسم والأيقونة",
@@ -3008,6 +3013,7 @@
     },
     "speaker": {
       "you": "أنت",
+      "noteTaker": "كاتب الملاحظات",
       "them": "الطرف الآخر",
       "unknown": "متحدث غير معروف",
       "label": "المتحدث {{n}}",

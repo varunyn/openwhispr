@@ -2920,7 +2920,6 @@
       "personal": "Личное",
       "privateTooltip": "Только вы видите своё личное пространство",
       "newSpace": "Новое командное пространство",
-      "newSpaceInWorkspace": "Новое командное пространство в {{workspace}}",
       "createTitle": "Создать командное пространство",
       "createDescription": "Общая область внутри рабочего пространства для людей и групп, которых вы добавите.",
       "nameAndIconLabel": "Название и значок",
@@ -3477,6 +3476,7 @@
     },
     "speaker": {
       "you": "Вы",
+      "noteTaker": "Автор заметок",
       "them": "Собеседник",
       "unknown": "Неизвестный участник",
       "label": "Участник {{n}}",
@@ -3635,7 +3635,11 @@
         "placeholder": "Добавьте слова через запятую",
         "to": "в {{list}}",
         "chooseList": "Выберите список для добавления",
-        "hiddenForYou": "Скрыто для вас в {{list}}"
+        "hiddenForYou": "Скрыто для вас в {{list}}",
+        "notAdded_one": "Не добавлено {{count}} слово: {{words}}",
+        "notAdded_few": "Не добавлено {{count}} слова: {{words}}",
+        "notAdded_many": "Не добавлено {{count}} слов: {{words}}",
+        "notAdded_other": "Не добавлено {{count}} слова: {{words}}"
       },
       "alreadyIn": "Уже есть в {{list}}",
       "importTo": "Импортировать в {{list}}",

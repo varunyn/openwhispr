@@ -2956,7 +2956,6 @@
       "personal": "Personal",
       "privateTooltip": "Solo tú puedes ver tu espacio personal",
       "newSpace": "Nuevo espacio de equipo",
-      "newSpaceInWorkspace": "Nuevo espacio de equipo en {{workspace}}",
       "createTitle": "Crear espacio de equipo",
       "createDescription": "Un área compartida dentro de un workspace para las personas y grupos que añadas.",
       "nameAndIconLabel": "Nombre e icono",
@@ -3509,6 +3508,7 @@
     },
     "speaker": {
       "you": "Tú",
+      "noteTaker": "Quien tomó notas",
       "them": "Ellos",
       "unknown": "Participante desconocido",
       "label": "Participante {{n}}",
@@ -3662,7 +3662,10 @@
         "placeholder": "Añade palabras separadas por comas",
         "to": "a {{list}}",
         "chooseList": "Elige la lista a la que añadir",
-        "hiddenForYou": "Oculta para ti en {{list}}"
+        "hiddenForYou": "Oculta para ti en {{list}}",
+        "notAdded_one": "No se añadió {{count}} palabra: {{words}}",
+        "notAdded_many": "No se añadieron {{count}} de palabras: {{words}}",
+        "notAdded_other": "No se añadieron {{count}} palabras: {{words}}"
       },
       "alreadyIn": "Ya está en {{list}}",
       "importTo": "Importar a {{list}}",

@@ -2904,7 +2904,6 @@
       "personal": "個人",
       "privateTooltip": "只有你可以看到你的個人空間",
       "newSpace": "新增團隊空間",
-      "newSpaceInWorkspace": "在 {{workspace}} 中新增團隊空間",
       "createTitle": "建立團隊空間",
       "createDescription": "工作區內的共享區域，供你加入的人員和群組存取。",
       "nameAndIconLabel": "名稱與圖示",
@@ -3457,6 +3456,7 @@
     },
     "speaker": {
       "you": "你",
+      "noteTaker": "記錄者",
       "them": "對方",
       "unknown": "未知發言者",
       "label": "發言者 {{n}}",
@@ -3609,7 +3609,9 @@
         "placeholder": "用逗號分隔新增多個詞",
         "to": "新增到 {{list}}",
         "chooseList": "選擇要新增到的清單",
-        "hiddenForYou": "在 {{list}} 中已對你隱藏"
+        "hiddenForYou": "在 {{list}} 中已對你隱藏",
+        "notAdded_one": "{{count}} 個詞語未新增：{{words}}",
+        "notAdded_other": "{{count}} 個詞語未新增：{{words}}"
       },
       "alreadyIn": "已在 {{list}} 中",
       "importTo": "匯入到 {{list}}",

@@ -11,6 +11,7 @@ export function parseTranscriptSegments(raw: string): TranscriptSegment[] {
       endTimestamp?: number;
       speaker?: string;
       speakerName?: string;
+      recorderName?: string;
       speakerIsPlaceholder?: boolean;
       suggestedName?: string;
       suggestedProfileId?: number;
@@ -27,6 +28,7 @@ export function parseTranscriptSegments(raw: string): TranscriptSegment[] {
         ...(s.endTimestamp != null ? { endTimestamp: s.endTimestamp } : {}),
         speaker: s.speaker,
         speakerName: s.speakerName,
+        recorderName: typeof s.recorderName === "string" ? s.recorderName : undefined,
         speakerIsPlaceholder: s.speakerIsPlaceholder,
         suggestedName: s.suggestedName,
         suggestedProfileId: s.suggestedProfileId,

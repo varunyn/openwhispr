@@ -3256,7 +3256,6 @@
       "personal": "Persönlich",
       "privateTooltip": "Nur du kannst deinen persönlichen Bereich sehen",
       "newSpace": "Neuer Team-Bereich",
-      "newSpaceInWorkspace": "Neuer Team-Bereich in {{workspace}}",
       "createTitle": "Team-Bereich erstellen",
       "createDescription": "Ein gemeinsamer Bereich in einem Workspace für die Personen und Gruppen, die du hinzufügst.",
       "nameAndIconLabel": "Name und Symbol",
@@ -3809,6 +3808,7 @@
     },
     "speaker": {
       "you": "Du",
+      "noteTaker": "Protokollant",
       "them": "Gegenüber",
       "unknown": "Unbekannter Sprecher",
       "label": "Sprecher {{n}}",
@@ -3961,7 +3961,9 @@
         "placeholder": "Wörter durch Kommas getrennt hinzufügen",
         "to": "zu {{list}}",
         "chooseList": "Liste zum Hinzufügen wählen",
-        "hiddenForYou": "In {{list}} für dich ausgeblendet"
+        "hiddenForYou": "In {{list}} für dich ausgeblendet",
+        "notAdded_one": "{{count}} Wort wurde nicht hinzugefügt: {{words}}",
+        "notAdded_other": "{{count}} Wörter wurden nicht hinzugefügt: {{words}}"
       },
       "alreadyIn": "Bereits in {{list}}",
       "importTo": "In {{list}} importieren",
