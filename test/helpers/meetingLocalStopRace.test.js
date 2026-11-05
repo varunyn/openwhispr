@@ -324,14 +324,17 @@ test("start sets the mic alignment strategy from the plan, then from the start r
 
 // Runs the real local chunk decode over a stubbed engine whose result the
 // test releases, to see what reaches the meeting window afterwards.
-function chunkHarness() {
+function chunkHarness({ unified = false } = {}) {
   const decode = deferred();
   const finals = [];
   const context = {
     createMeetingLocalDecodeQueue: require("../../src/helpers/meetingLocalDecodeQueue")
       .createMeetingLocalDecodeQueue,
     _audioFeaturePolicy: { activeFailure: () => null },
-    parakeetManager: { transcribeLocalParakeet: () => decode.promise },
+    fallbackCalls: 0,
+    unified,
+    unifiedMeetingAsr: { feed: () => decode.promise, stop: async () => {} },
+    parakeetManager: { transcribeLocalParakeet: () => { context.fallbackCalls++; return decode.promise; } },
     finals,
     debugLogger: { debug() {}, error() {} },
     Buffer,
@@ -342,7 +345,8 @@ function chunkHarness() {
     `
     const meetingLocalBuffers = { mic: [], system: [Buffer.alloc(4)] };
     const meetingLocalWin = { isDestroyed: () => false, webContents: { send: (channel, payload) => finals.push({ channel, payload }) } };
-    const meetingUnifiedAsrActive = false;
+    let meetingUnifiedAsrActive = unified;
+    const meetingLocalAudioStartedAt = { mic: 0, system: 0 };
     const meetingLiveSpeakerStartedAt = null;
     const meetingLocalProvider = "nvidia";
     const meetingLocalModel = "parakeet";
@@ -473,3 +477,22 @@ test("a local decode that finishes after revocation delivers no text", async () 
     assert.deepEqual(plain(finals), revoked ? [] : ["said as the policy changed"]);
   }
 });
+
+for (const aborted of [false, true]) {
+  test(`continuous meeting policy ${aborted ? "revocation" : "refusal"} never retries offline`, async () => {
+    const { context, decode, finals } = chunkHarness({ unified: true });
+    const stopped = [];
+    context._stopMeetingForPolicy = (code) => stopped.push(code);
+    context._activeLocalMeetingLease = { signal: { aborted: false } };
+    context._localModelPolicy = { assertCurrent() {}, runWithLease: (_lease, run) => run() };
+    const pending = context.transcribe();
+    if (aborted) context._activeLocalMeetingLease.signal.aborted = true;
+    decode.reject(aborted
+      ? new Error("request cancelled")
+      : Object.assign(new Error("blocked"), { code: "POLICY_MODEL_BLOCKED" }));
+    await pending;
+    assert.equal(context.fallbackCalls, 0);
+    assert.deepEqual(stopped, aborted ? [] : ["POLICY_MODEL_BLOCKED"]);
+    if (aborted) assert.deepEqual(plain(finals), []);
+  });
+}
