@@ -260,6 +260,9 @@ if (!protocolRegistered) {
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 
 if (!gotSingleInstanceLock) {
+  console.warn(
+    "[Startup] Could not acquire the single-instance lock; another OpenWhispr instance may already be running. Exiting."
+  );
   app.exit(0);
 }
 
@@ -1240,6 +1243,7 @@ async function startApp() {
   });
 
   await migrateCookieToBearerToken();
+  ipcHandlers.loadLocalModelPolicy();
 
   applyOpenWhisprOriginHeader(session.defaultSession);
 
