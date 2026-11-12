@@ -105,6 +105,7 @@ const target = {
   sessionId: "test-session",
   databaseManager: null,
   audioStorageManager: audioStorageStub,
+  meetingAudioStorage: { getStorageUsage: () => ({ fileCount: 0, totalBytes: 0 }), deleteAll() {} },
 };
 let handleAuthTokenChange;
 

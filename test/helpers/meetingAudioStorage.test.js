@@ -74,3 +74,15 @@ test("aborting an active meeting discards its temporary audio", () => {
   assert.deepEqual(fs.readdirSync(manager.dir), []);
   assert.equal(manager.finish(), null);
 });
+
+test("account-scoped storage actions leave other notes' recordings intact", () => {
+  const store = storage();
+  const first = path.join(store.dir, `OpenWhispr-meeting-1-${sessionId}.wav`);
+  const second = path.join(store.dir, `OpenWhispr-meeting-2-${sessionId}.wav`);
+  fs.writeFileSync(first, Buffer.alloc(8));
+  fs.writeFileSync(second, Buffer.alloc(16));
+  assert.deepEqual(store.getStorageUsage((id) => id === 1), { fileCount: 1, totalBytes: 8 });
+  store.deleteAll((id) => id === 1);
+  assert.equal(fs.existsSync(first), false);
+  assert.equal(fs.existsSync(second), true);
+});

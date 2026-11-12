@@ -179,17 +179,18 @@ class MeetingAudioStorage {
     for (const file of this.filesForNote(noteId)) fs.rmSync(file, { force: true });
   }
 
-  deleteAll() {
-    this.abort();
+  deleteAll(canAccessNote = null) {
+    if (!canAccessNote || (this.active && canAccessNote(this.active.noteId))) this.abort();
     for (const name of fs.readdirSync(this.dir)) {
+      if (canAccessNote && !canAccessNote(Number(name.match(/^OpenWhispr-meeting-(\d+)-/)?.[1]))) continue;
       if (name.endsWith(".wav") || name.endsWith(".part")) {
         fs.rmSync(path.join(this.dir, name), { force: true });
       }
     }
   }
 
-  getStorageUsage() {
-    const files = fs.readdirSync(this.dir).filter((name) => name.endsWith(".wav"));
+  getStorageUsage(canAccessNote = null) {
+    const files = fs.readdirSync(this.dir).filter((name) => name.endsWith(".wav") && (!canAccessNote || canAccessNote(Number(name.match(/^OpenWhispr-meeting-(\d+)-/)?.[1]))));
     return {
       fileCount: files.length,
       totalBytes: files.reduce((sum, name) => sum + fs.statSync(path.join(this.dir, name)).size, 0),

@@ -278,6 +278,10 @@ function meetingRowsHarness({ holdMic = false } = {}) {
   };
   const context = {
     Buffer,
+    createMeetingLocalDecodeQueue: require("../../src/helpers/meetingLocalDecodeQueue").createMeetingLocalDecodeQueue,
+    meetingUnifiedAsrActive: false,
+    meetingLiveSpeakerStartedAt: null,
+    meetingLocalAudioStartedAt: { mic: 0, system: 0 },
     DeepgramStreaming,
     Date: { now: () => now },
     meetingDiarizationSegments: segments,

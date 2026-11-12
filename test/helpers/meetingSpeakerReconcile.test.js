@@ -410,9 +410,12 @@ test("a stopped session's diarization reserves its speaker ids until its result 
   const DiarizationManager = loadDiarizationManager();
   const speakerEmbeddings = require("../../src/helpers/speakerEmbeddings");
   t.mock.method(speakerEmbeddings, "isAvailable", () => true);
-  t.mock.method(speakerEmbeddings, "extractEmbedding", async () => new Float32Array([1, 0]));
+  t.mock.method(speakerEmbeddings, "extractClusterCentroids", async () => new Map([["speaker_00", new Float32Array([1, 0])], ["speaker_01", new Float32Array([0, 1])]]));
   t.mock.method(speakerEmbeddings, "computeCentroid", (embeddings) => embeddings[0]);
 
+  const reserveWav = require("node:path").join(require("node:os").tmpdir(), `ow-reserve-${process.pid}.wav`);
+  require("node:fs").writeFileSync(reserveWav, Buffer.alloc(32000));
+  t.after(() => require("node:fs").rmSync(reserveWav, { force: true }));
   let releaseDiarization;
   const diarizationGate = new Promise((resolve) => {
     releaseDiarization = resolve;
@@ -420,7 +423,7 @@ test("a stopped session's diarization reserves its speaker ids until its result 
   const diarizationManager = new DiarizationManager();
   Object.assign(diarizationManager, {
     isAvailable: () => true,
-    convertRawPcmToWav: async () => "/nonexistent/ow-reserve-test.wav",
+    convertRawPcmToWav: async () => reserveWav,
     diarize: async () => {
       await diarizationGate;
       return [

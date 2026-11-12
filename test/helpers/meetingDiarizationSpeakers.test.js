@@ -99,7 +99,7 @@ function diarizeMeeting(
       fs.writeFileSync(wavPath, Buffer.alloc(32000 * 600));
       return wavPath;
     },
-    diarize: async () => diarizerOutput,
+    diarizeMeeting: async () => diarizerOutput,
   });
   const handlers = Object.assign(Object.create(IPCHandlers.prototype), {
     diarizationManager,
